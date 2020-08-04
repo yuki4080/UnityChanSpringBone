@@ -37,6 +37,7 @@ namespace Unity.Animations.SpringBones
         private float timeFactor;
         private float spinTime;
         private Vector3 offsetVector;
+        public Vector3 OffsetVector => offsetVector;
 
         private float GetPositionalFactor(float x, float y)
         {

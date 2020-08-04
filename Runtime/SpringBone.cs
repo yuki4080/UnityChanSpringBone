@@ -6,6 +6,12 @@ namespace Unity.Animations.SpringBones
 {
     public class SpringBone : MonoBehaviour
     {
+        //********************************************************
+        // extend param for Job
+		public int index = 0;          // number of SpringBone
+        public int collisionMask = -1; // calcurate collision layer
+        //********************************************************
+
         public enum CollisionStatus
         {
             NoCollision,
