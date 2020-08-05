@@ -266,20 +266,6 @@ namespace Unity.Animations.SpringBones.Jobs {
 			}
 		}
 
-		private static IList<Transform> GetValidSpringBoneChildren(Transform parent) {
-			// Ignore SpringBonePivots
-			var childCount = parent.childCount;
-			var children = new List<Transform>(childCount);
-			for (int childIndex = 0; childIndex < childCount; childIndex++) {
-				var child = parent.GetChild(childIndex);
-				if (child.GetComponent<SpringBonePivot>() == null) {
-					children.Add(child);
-				}
-			}
-
-			return children;
-		}
-
 		/// <summary>
 		/// Jobデータの取得
 		/// </summary>
