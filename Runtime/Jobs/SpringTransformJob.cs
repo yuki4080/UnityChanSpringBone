@@ -22,18 +22,19 @@ namespace Unity.Animations.SpringBones.Jobs {
 	/// </summary>
 	[Burst.BurstCompile]
 	public struct SpringParentJob : IJobParallelForTransform {
-		[ReadOnly] public NativeArray<SpringBoneProperties> properties;
+		//[ReadOnly] public NativeArray<SpringBoneProperties> properties;
 
 		public NativeArray<SpringBoneComponent> components;
 
 		void IJobParallelForTransform.Execute(int index, TransformAccess transform) {
-			SpringBoneProperties prop = this.properties[index];
-			if (prop.parentIndex < 0) {
-				SpringBoneComponent bone = this.components[index];
+			// NOTE: 余計な判定を入れない方が速い模様
+			//SpringBoneProperties prop = this.properties[index];
+			//if (prop.parentIndex < 0) {
+			SpringBoneComponent bone = this.components[index];
 				bone.parentPosition = transform.position;
 				bone.parentRotation = transform.rotation;
 				this.components[index] = bone;
-			}
+			//}
 		}
 	}
 
@@ -42,31 +43,33 @@ namespace Unity.Animations.SpringBones.Jobs {
 	/// </summary>
 	[Burst.BurstCompile]
 	public struct SpringPivotJob : IJobParallelForTransform {
-		[ReadOnly] public NativeSlice<SpringJobChild> jobArray;
-		[ReadOnly] public NativeArray<SpringBoneProperties> properties;
+		//[ReadOnly] public NativeSlice<SpringJobChild> jobArray;
+		//[ReadOnly] public NativeArray<SpringBoneProperties> properties;
 
 		[WriteOnly] public NativeArray<Matrix4x4> components;
 
 		void IJobParallelForTransform.Execute(int index, TransformAccess transform) {
-			int jobIndex = -1;
-			for (int i = 0; i < this.jobArray.Length; ++i) {
-				if (this.jobArray[i].boneIndex <= index && index < this.jobArray[i].boneIndex + this.jobArray[i].boneCount) {
-					jobIndex = i;
-					break;
-				}
-			}
-			if (jobIndex < 0) {
-				// NOTE: DeactiveなTransformは送られてこない、かつDeactive時にnullを入れているので正常動作としてはここに来ない
-				Debug.LogWarning("Skip Transform!");
-				return;
-			}
+			// NOTE: 余計な判定を入れない方が速い模様
+			//int jobIndex = -1;
+			//for (int i = 0; i < this.jobArray.Length; ++i) {
+			//	if (this.jobArray[i].boneIndex <= index && index < this.jobArray[i].boneIndex + this.jobArray[i].boneCount) {
+			//		jobIndex = i;
+			//		break;
+			//	}
+			//}
+			//if (jobIndex < 0) {
+			//	// NOTE: DeactiveなTransformは送られてこない、かつDeactive時にnullを入れているので正常動作としてはここに来ない
+			//	Debug.LogWarning("Skip Transform!");
+			//	return;
+			//}
 
-			if (this.jobArray[jobIndex].settings.enableAngleLimits) {
-				SpringBoneProperties prop = this.properties[index];
-				if (prop.pivotIndex < 0 && (prop.yAngleLimits.active || prop.zAngleLimits.active)) {
-					this.components[index] = transform.localToWorldMatrix;
-				}
-			}
+			//if (this.jobArray[jobIndex].settings.enableAngleLimits) {
+			//	SpringBoneProperties prop = this.properties[index];
+			//	if (prop.pivotIndex < 0 && (prop.yAngleLimits.active || prop.zAngleLimits.active)) {
+			//		this.components[index] = transform.localToWorldMatrix;
+			//	}
+			//}
+			this.components[index] = transform.localToWorldMatrix;
 		}
 	}
 

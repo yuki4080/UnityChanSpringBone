@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Unity.Collections;
 using UnityEngine;
+using System.Linq;
 
 namespace Unity.Animations.SpringBones.Jobs {
 	public class SpringJobManager : MonoBehaviour {
@@ -34,6 +35,25 @@ namespace Unity.Animations.SpringBones.Jobs {
 
 		private bool initialized = false;
 
+		private static int GetObjectDepth(Transform inObject) {
+			var depth = 0;
+			var currentObject = inObject;
+			while (currentObject != null) {
+				currentObject = currentObject.parent;
+				++depth;
+			}
+			return depth;
+		}
+		// Find SpringBones in children and assign them in depth order.
+		// Note that the original list will be overwritten.
+		public void FindSpringBones(bool includeInactive = false) {
+			var unsortedSpringBones = GetComponentsInChildren<SpringBone>(includeInactive);
+			var boneDepthList = unsortedSpringBones
+				.Select(bone => new { bone, depth = GetObjectDepth(bone.transform) })
+				.ToList();
+			boneDepthList.Sort((a, b) => a.depth.CompareTo(b.depth));
+			springBones = boneDepthList.Select(item => item.bone).ToArray();
+		}
 		/// <summary>
 		/// 初期化
 		/// </summary>
@@ -42,7 +62,9 @@ namespace Unity.Animations.SpringBones.Jobs {
 				return;
 
 			this.initialized = true;
-			this.springBones = GetComponentsInChildren<SpringBone>(true);
+
+			//this.springBones = GetComponentsInChildren<SpringBone>(true);
+			this.FindSpringBones(true);
 
 			var nSpringBones = this.springBones.Length;
 
@@ -134,7 +156,8 @@ namespace Unity.Animations.SpringBones.Jobs {
 				var root = springBone.transform;
 				var parent = root.parent;
 
-				var childPos = ComputeChildBonePosition(springBone);
+				//var childPos = ComputeChildBonePosition(springBone);
+				var childPos = springBone.ComputeChildPosition();
 				var childLocalPos = root.InverseTransformPoint(childPos);
 				var boneAxis = Vector3.Normalize(childLocalPos);
 
@@ -164,12 +187,24 @@ namespace Unity.Animations.SpringBones.Jobs {
 				}
 
 				// ReadOnly
-				int parentIndex = -1, pivotIndex = -1;
+				int parentIndex = -1;
+				Matrix4x4 pivotLocalMatrix = Matrix4x4.identity;
 				if (parent.TryGetComponent<SpringBone>(out var parentBone))
 					parentIndex = parentBone.index;
+
+				var pivotIndex = -1;
 				var pivotTransform = springBone.GetPivotTransform();
-				if (pivotTransform.TryGetComponent<SpringBone>(out var pivotBone))
+				var pivotBone = pivotTransform.GetComponentInParent<SpringBone>();
+				if (pivotBone != null) {
 					pivotIndex = pivotBone.index;
+					// NOTE: PivotがSpringBoneの子供に置かれている場合の対処
+					if (pivotBone.transform != pivotTransform) {
+						// NOTE: 1個上の親がSpringBoneとは限らない
+						//pivotLocalMatrix = Matrix4x4.TRS(pivotTransform.localPosition, pivotTransform.localRotation, Vector3.one);
+						pivotLocalMatrix = Matrix4x4.Inverse(pivotBone.transform.localToWorldMatrix) * pivotTransform.localToWorldMatrix;
+					}
+				}
+
 				this.properties[i] = new SpringBoneProperties {
 					stiffnessForce = springBone.stiffnessForce,
 					dragForce = springBone.dragForce,
@@ -192,6 +227,8 @@ namespace Unity.Animations.SpringBones.Jobs {
                     collisionMask = springBone.collisionMask,
 
 					pivotIndex = pivotIndex,
+					pivotLocalMatrix = pivotLocalMatrix,
+
 					lengthLimitIndex = targetListIndex,
 					lengthLimitLength = targetCount,
 					
@@ -227,37 +264,6 @@ namespace Unity.Animations.SpringBones.Jobs {
 				scheduler.lengthLimitTransforms[this.job.lengthIndex + i] = lengthTargetList[i];
 				this.lengthProperties[i] = lengthLimitList[i];
 			}
-		}
-
-		private static Vector3 ComputeChildBonePosition(SpringBone bone) {
-			var children = GetValidSpringBoneChildren(bone.transform);
-			var childCount = children.Count;
-
-			if (childCount == 0) {
-				// This should never happen
-				Debug.LogWarning("SpringBone「" + bone.name + "」に有効な子供がありません");
-				return bone.transform.position + bone.transform.right * -0.1f;
-			}
-
-			if (childCount == 1) {
-				return children[0].position;
-			}
-
-			var initialTailPosition = new Vector3(0f, 0f, 0f);
-			var averageDistance = 0f;
-			var selfPosition = bone.transform.position;
-			for (int childIndex = 0; childIndex < childCount; childIndex++) {
-				var childPosition = children[childIndex].position;
-				initialTailPosition += childPosition;
-				averageDistance += (childPosition - selfPosition).magnitude;
-			}
-
-			averageDistance /= childCount;
-			initialTailPosition /= childCount;
-			var selfToInitial = initialTailPosition - selfPosition;
-			selfToInitial.Normalize();
-			initialTailPosition = selfPosition + averageDistance * selfToInitial;
-			return initialTailPosition;
 		}
 
 		private static IList<Transform> GetValidSpringBoneChildren(Transform parent) {

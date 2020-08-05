@@ -36,6 +36,8 @@ namespace Unity.Animations.SpringBones.Jobs {
 		public int collisionMask;
 
 		public int pivotIndex;  // PivotがSpringBoneだった場合のIndex（違う場合 -1）
+		public Matrix4x4 pivotLocalMatrix;
+
 		public int lengthLimitIndex;
 		public int lengthLimitLength;
 
@@ -119,18 +121,10 @@ namespace Unity.Animations.SpringBones.Jobs {
 				}
 				bone.position = bone.parentPosition + bone.parentRotation * prop.localPosition;
 				bone.rotation = bone.parentRotation * bone.localRotation;
-				Matrix4x4 pivotLocalToWorld;
-				if (prop.pivotIndex >= 0) {
-					var pivotBone = job.components[prop.pivotIndex];
-					pivotLocalToWorld = Matrix4x4.TRS(pivotBone.position, pivotBone.rotation, Vector3.one);
-				} else {
-					pivotLocalToWorld = job.pivotComponents[index];
-				}
 
 				var baseWorldRotation = bone.parentRotation * prop.initialLocalRotation;
 				this.UpdateSpring(ref bone, in prop, in baseWorldRotation);
-				this.ResolveCollisionsAndConstraints(in job, ref bone, in prop, in pivotLocalToWorld);
-
+				this.ResolveCollisionsAndConstraints(in job, ref bone, in prop, index);
 				this.UpdateRotation(ref bone, in prop, in baseWorldRotation);
 				job.components[index] = bone;
 			}
@@ -160,7 +154,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 				// was originally this
 				//headToTail = transform.TransformDirection(boneAxis)
 				Matrix4x4 mat = Matrix4x4.TRS(bone.position, bone.rotation, Vector3.one);
-				headToTail = mat.MultiplyVector(headToTail);
+				headToTail = mat.MultiplyVector(prop.boneAxis);
 			} else {
 				headToTail /= magnitude;
 			}
@@ -168,7 +162,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			bone.currentTipPosition = headPosition + prop.springLength * headToTail;
 		}
 
-		private void ResolveCollisionsAndConstraints(in SpringJob job, ref SpringBoneComponent bone, in SpringBoneProperties prop, in Matrix4x4 pivotMat) {
+		private void ResolveCollisionsAndConstraints(in SpringJob job, ref SpringBoneComponent bone, in SpringBoneProperties prop, int index) {
 			if (this.settings.enableLengthLimits)
 				this.ApplyLengthLimits(in job, ref bone, in prop);
 
@@ -180,8 +174,16 @@ namespace Unity.Animations.SpringBones.Jobs {
 			if (this.settings.enableCollision && !hadCollision)
 				this.ResolveCollisions(in job, ref bone, in prop);
 
-			if (this.settings.enableAngleLimits)
-				this.ApplyAngleLimits(ref bone, in prop, in pivotMat);
+			if (this.settings.enableAngleLimits) {
+				Matrix4x4 pivotLocalToWorld;
+				if (prop.pivotIndex >= 0) {
+					var pivotBone = job.components[this.boneIndex + prop.pivotIndex];
+					pivotLocalToWorld = Matrix4x4.TRS(pivotBone.position, pivotBone.rotation, Vector3.one) * prop.pivotLocalMatrix;
+				} else {
+					pivotLocalToWorld = job.pivotComponents[index];
+				}
+				this.ApplyAngleLimits(ref bone, in prop, in pivotLocalToWorld);
+			}
 		}
 
 		// Returns the new tip position
@@ -199,7 +201,8 @@ namespace Unity.Animations.SpringBones.Jobs {
 				int index = this.lengthIndex + i;
 				var limit = job.lengthProperties[index];
 				var lengthToLimitTarget = limit.target;
-				var limitPosition = (limit.targetIndex >= 0) ? job.components[limit.targetIndex].position : job.lengthComponents[index];
+				var limitPosition = (limit.targetIndex >= 0) ? job.components[this.boneIndex + limit.targetIndex].position
+															 : job.lengthComponents[this.lengthIndex + index];
 				var currentToTarget = bone.currentTipPosition - limitPosition;
 				//var currentDistanceSquared = Vector3.SqrMagnitude(currentToTarget);
 
@@ -260,7 +263,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			var desiredPosition = bone.currentTipPosition;
 			var headPosition = bone.position;
 
-			//            var scaledRadius = transform.TransformDirection(radius, 0f, 0f).magnitude;
+			// var scaledRadius = transform.TransformDirection(radius, 0f, 0f).magnitude;
 			// var scaleMagnitude = new Vector3(prop.radius, 0f, 0f).magnitude;
 			var hitNormal = new Vector3(0f, 0f, 1f);
 
@@ -318,32 +321,32 @@ namespace Unity.Animations.SpringBones.Jobs {
 			return hadCollision;
 		}
 
-		private void ApplyAngleLimits(ref SpringBoneComponent bone, in SpringBoneProperties prop, in Matrix4x4 parentLocalToWorld) {
+		private void ApplyAngleLimits(ref SpringBoneComponent bone, in SpringBoneProperties prop, in Matrix4x4 pivotLocalToWorld) {
 			if (!prop.yAngleLimits.active && !prop.zAngleLimits.active)
 				return;
 
 			var origin = bone.position;
 			var vector = bone.currentTipPosition - origin;
 
-			var forward = parentLocalToWorld * -Vector3.right;
+			var forward = pivotLocalToWorld * -Vector3.right;
 
-			var mulBack = parentLocalToWorld * Vector3.back;
-			var mulDown = parentLocalToWorld * Vector3.down;
+			var mulBack = pivotLocalToWorld * Vector3.back;
+			var mulDown = pivotLocalToWorld * Vector3.down;
 
 			if (prop.yAngleLimits.active) {
-				prop.yAngleLimits.ConstrainVector(
-					vector,
-					mulDown, //parentLocalToWorldMat * -Vector3.up,
-					mulBack, //parentLocalToWorldMat * -Vector3.forward,
-					forward, prop.angularStiffness, this.deltaTime);
+				vector = prop.yAngleLimits.ConstrainVector(
+							vector,
+							mulDown, //pivotLocalToWorld * -Vector3.up,
+							mulBack, //pivotLocalToWorld * -Vector3.forward,
+							forward, prop.angularStiffness, this.deltaTime);
 			}
 
 			if (prop.zAngleLimits.active) {
-				prop.zAngleLimits.ConstrainVector(
-					vector,
-					mulBack, //parentLocalToWorldMat * -Vector3.forward,
-					mulDown, //parentLocalToWorldMat * -Vector3.up,
-					forward, prop.angularStiffness, this.deltaTime);
+				vector = prop.zAngleLimits.ConstrainVector(
+							vector,
+							mulBack, //pivotLocalToWorld * -Vector3.forward,
+							mulDown, //pivotLocalToWorld * -Vector3.up,
+							forward, prop.angularStiffness, this.deltaTime);
 			}
 
 			bone.currentTipPosition = origin + vector;
@@ -356,6 +359,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			{
 				bone.currentTipPosition = bone.position + baseWorldRotation * prop.boneAxis * prop.springLength;
 				bone.previousTipPosition = bone.currentTipPosition;
+				Debug.LogError("SpringBone : currentTipPosition is NaN.");
 			}
 
 			var actualLocalRotation = ComputeLocalRotation(in baseWorldRotation, ref bone, in prop);
@@ -366,7 +370,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 		private Quaternion ComputeLocalRotation(in Quaternion baseWorldRotation, ref SpringBoneComponent bone, in SpringBoneProperties prop) {
 			var worldBoneVector = bone.currentTipPosition - bone.position;
 			var localBoneVector = Quaternion.Inverse(baseWorldRotation) * worldBoneVector;
-			localBoneVector = Vector3.Normalize(localBoneVector);
+			localBoneVector.Normalize();
 
 			var aimRotation = Quaternion.FromToRotation(prop.boneAxis, localBoneVector);
 			var outputRotation = prop.initialLocalRotation * aimRotation;

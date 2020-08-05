@@ -1,3 +1,5 @@
+//#define ASYNCHRONIZE // 1F内で計算と反映を行う
+
 using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Jobs;
@@ -34,7 +36,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 		// ジョブ渡しバッファ
 		internal NativeContainerPool<SpringBoneProperties> properties;
 		internal NativeArray<SpringBoneComponent> components;
-		internal NativeContainerPool<Matrix4x4> pivotComponents;
+		internal NativeArray<Matrix4x4> pivotComponents;
 		internal NativeContainerPool<SpringColliderProperties> colProperties;
 		internal NativeArray<SpringColliderComponents> colComponents;
 		internal NativeContainerPool<LengthLimitProperties> lengthProperties;
@@ -72,7 +74,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 
 			this.properties = new NativeContainerPool<SpringBoneProperties>(this.boneCapacity, this.registerCapacity);
 			this.components = new NativeArray<SpringBoneComponent>(this.boneCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-			this.pivotComponents = new NativeContainerPool<Matrix4x4>(this.boneCapacity, this.registerCapacity);
+			this.pivotComponents = new NativeArray<Matrix4x4>(this.boneCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 			this.colProperties = new NativeContainerPool<SpringColliderProperties>(this.collisionCapacity, this.registerCapacity);
 			this.colComponents = new NativeArray<SpringColliderComponents>(this.collisionCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 			this.lengthProperties = new NativeContainerPool<LengthLimitProperties>(this.lengthLimitCapacity, this.registerCapacity);
@@ -93,10 +95,10 @@ namespace Unity.Animations.SpringBones.Jobs {
 			this.lengthLimitTransforms = new TransformAccessArray(new Transform[this.lengthLimitCapacity], desiredJobCount);
 
 			this.applyJob.components = this.components;
-			this.parentJob.properties = this.properties.nativeArray;
+			//this.parentJob.properties = this.properties.nativeArray;
 			this.parentJob.components = this.components;
-			this.pivotJob.properties = this.properties.nativeArray;
-			this.pivotJob.components = this.pivotComponents.nativeArray;
+			//this.pivotJob.properties = this.properties.nativeArray;
+			this.pivotJob.components = this.pivotComponents;
 			this.colliderJob.components = this.colComponents;
 			this.lengthLimitJob.properties = this.lengthProperties.nativeArray;
 			this.lengthLimitJob.components = this.lengthComponents;
@@ -104,7 +106,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			this.managerJobs = new NativeArray<SpringJobChild>(this.registerCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 			this.preHandle = new NativeArray<JobHandle>((int)TRANSFORM_JOB.MAX, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 
-			this.springJob.pivotComponents = this.pivotComponents.nativeArray;
+			this.springJob.pivotComponents = this.pivotComponents;
 			this.springJob.components = this.components;
 			this.springJob.properties = this.properties.nativeArray;
 			this.springJob.colProperties = this.colProperties.nativeArray;
@@ -146,7 +148,9 @@ namespace Unity.Animations.SpringBones.Jobs {
 			if (!this.scheduled)
 				return;
 
+#if ASYNCHRONIZE
 			this.handle.Complete();
+#endif
 
 			int managerCount = this.managers.Count;
 			if (managerCount == 0) {
@@ -157,17 +161,28 @@ namespace Unity.Animations.SpringBones.Jobs {
 			// NonJob for debug
 			//this.ManagedJob();
 
+#if ASYNCHRONIZE
 			// Spring結果反映
 			var applyHandle = this.applyJob.Schedule(this.boneTransforms);
-			// NOTE: 可能な限り並列化出来るようにする
-			this.preHandle[(int)TRANSFORM_JOB.PIVOT_BONE]   = this.pivotJob.Schedule(this.bonePivotTransforms, applyHandle);
-			this.preHandle[(int)TRANSFORM_JOB.PARENT_BONE]  = this.parentJob.Schedule(this.boneParentTransforms, applyHandle);
-			this.preHandle[(int)TRANSFORM_JOB.COLLIDER]     = this.colliderJob.Schedule(this.colliderTransforms, applyHandle);
+			this.preHandle[(int)TRANSFORM_JOB.PIVOT_BONE] = this.pivotJob.Schedule(this.bonePivotTransforms, applyHandle);
+			this.preHandle[(int)TRANSFORM_JOB.PARENT_BONE] = this.parentJob.Schedule(this.boneParentTransforms, applyHandle);
+			this.preHandle[(int)TRANSFORM_JOB.COLLIDER] = this.colliderJob.Schedule(this.colliderTransforms, applyHandle);
 			this.preHandle[(int)TRANSFORM_JOB.LENGTH_LIMIT] = this.lengthLimitJob.Schedule(this.lengthLimitTransforms, applyHandle);
+#else
+			// NOTE: 可能な限り並列化出来るようにする
+			this.preHandle[(int)TRANSFORM_JOB.PIVOT_BONE]   = this.pivotJob.Schedule(this.bonePivotTransforms);
+			this.preHandle[(int)TRANSFORM_JOB.PARENT_BONE]  = this.parentJob.Schedule(this.boneParentTransforms);
+			this.preHandle[(int)TRANSFORM_JOB.COLLIDER]     = this.colliderJob.Schedule(this.colliderTransforms);
+			this.preHandle[(int)TRANSFORM_JOB.LENGTH_LIMIT] = this.lengthLimitJob.Schedule(this.lengthLimitTransforms);
+#endif
 			var combineHandle = JobHandle.CombineDependencies(this.preHandle);
 			this.handle = this.springJob.Schedule(combineHandle);
 
+#if ASYNCHRONIZE
 			JobHandle.ScheduleBatchedJobs();
+#else
+			this.applyJob.Schedule(this.boneTransforms, this.handle).Complete();
+#endif
 		}
 
 		/// <summary>
@@ -199,7 +214,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 				activeJobs[i] = instance.managers[i].GetJob();
 
 			instance.springJob.jobArray = activeJobs;
-			instance.pivotJob.jobArray = activeJobs;       // AngleLimit option
+			//instance.pivotJob.jobArray = activeJobs;       // AngleLimit option
 			instance.colliderJob.jobArray = activeJobs;    // Collider option
 			instance.lengthLimitJob.jobArray = activeJobs; // LengthLimit option
 
@@ -225,11 +240,11 @@ namespace Unity.Animations.SpringBones.Jobs {
 		/// </summary>
 		//public void ManagedJob() {
 		//	Vector3 pos; Quaternion rot;
-		//	var components = this.components.nativeArray;
+		//	var components = this.components;
 		//	var properties = this.properties.nativeArray;
 		//	var colliders = this.colComponents.nativeArray;
 		//	var limits = this.lengthProperties.nativeArray;
-		//	var pivots = this.pivotComponents.nativeArray;
+		//	var pivots = this.pivotComponents;
 
 		//	var jobChilds = this.springJob.jobArray;
 		//	int children = jobChilds.Length;
