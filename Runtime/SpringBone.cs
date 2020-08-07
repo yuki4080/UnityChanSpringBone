@@ -11,7 +11,8 @@ namespace Unity.Animations.SpringBones
         [System.NonSerialized]
 		public int index = 0;          // number of SpringBone
 
-        public int collisionMask = -1; // calcurate collision layer
+        //public int collisionMask = -1; // calcurate collision layer
+        public Jobs.SpringCollider[] jobColliders;
         //********************************************************
 
         public enum CollisionStatus

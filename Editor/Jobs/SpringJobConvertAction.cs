@@ -1,10 +1,11 @@
 ﻿using UnityEngine;
 using UnityEditor;
+using System.Collections.Generic;
 
 
 namespace Unity.Animations.SpringBones.Jobs {
 	public static class SpringJobConvertAction {
-		[MenuItem("UTJ/選択したオブジェクトのSpringBoneをJob化（非可逆）")]
+		[MenuItem("UTJ/選択したオブジェクトのSpringBoneをJob化")]
 		public static void SwitchSpringJob() {
 			if (EditorApplication.isPlaying || Application.isPlaying && EditorApplication.isCompiling)
 				return;
@@ -30,104 +31,61 @@ namespace Unity.Animations.SpringBones.Jobs {
 
 				Object.DestroyImmediate(manager);
 			}
-			// SpringCollider
-			var spheres = activeObject.GetComponentsInChildren<SpringSphereCollider>(true);
-			foreach (var sphere in spheres) {
-				if (!sphere.gameObject.TryGetComponent<SpringCollider>(out var collider)) {
-					collider = sphere.gameObject.AddComponent<SpringCollider>();
+
+			var bones = activeObject.GetComponentsInChildren<SpringBone>(true);
+			List<SpringCollider> jobColliderList = new List<SpringCollider>(128);
+			foreach (var bone in bones) {
+				jobColliderList.Clear();
+				for (int i = 0; i < bone.capsuleColliders.Length; ++i) {
+					var col = bone.capsuleColliders[i];
+					if (!col.TryGetComponent<SpringCollider>(out var jobCol)) {
+						jobCol = col.gameObject.AddComponent<SpringCollider>();
+						jobCol.type = ColliderType.Capsule;
+						jobCol.radius = col.radius;
+						jobCol.height = col.height;
+					}
+					jobColliderList.Add(jobCol);
 				}
-				collider.type = ColliderType.Sphere;
-				collider.radius = sphere.radius;
-
-				Object.DestroyImmediate(sphere);
-			}
-			// CapsulegCollider
-			var capsules = activeObject.GetComponentsInChildren<SpringCapsuleCollider>(true);
-			foreach (var capsule in capsules) {
-				if (!capsule.gameObject.TryGetComponent<SpringCollider>(out var collider)) {
-					collider = capsule.gameObject.AddComponent<SpringCollider>();
+				for (int i = 0; i < bone.sphereColliders.Length; ++i) {
+					var col = bone.sphereColliders[i];
+					if (!col.TryGetComponent<SpringCollider>(out var jobCol)) {
+						jobCol = col.gameObject.AddComponent<SpringCollider>();
+						jobCol.type = ColliderType.Sphere;
+						jobCol.radius = col.radius;
+					}
+					jobColliderList.Add(jobCol);
 				}
-				collider.type = ColliderType.Capsule;
-				collider.radius = capsule.radius;
-				collider.height = capsule.height;
-
-				Object.DestroyImmediate(capsule);
-			}
-			// PanelCollider
-			var panels = activeObject.GetComponentsInChildren<SpringPanelCollider>(true);
-			foreach (var panel in panels) {
-				if (!panel.gameObject.TryGetComponent<SpringCollider>(out var collider)) {
-					collider = panel.gameObject.AddComponent<SpringCollider>();
+				for (int i = 0; i < bone.panelColliders.Length; ++i) {
+					var col = bone.panelColliders[i];
+					if (!col.TryGetComponent<SpringCollider>(out var jobCol)) {
+						jobCol = col.gameObject.AddComponent<SpringCollider>();
+						jobCol.type = ColliderType.Panel;
+						jobCol.radius = col.width;
+						jobCol.height = col.height;
+					}
+					jobColliderList.Add(jobCol);
 				}
-				collider.type = ColliderType.Panel;
-				collider.width = panel.width;
-				collider.height = panel.height;
+				bone.capsuleColliders = null;
+				bone.sphereColliders = null;
+				bone.panelColliders = null;
 
-				Object.DestroyImmediate(panel);
+				// NOTE: SerializeFieldなので反映しないと実行時に消される
+				var so = new SerializedObject(bone);
+				var prop = so.FindProperty("jobColliders");
+				prop.arraySize = jobColliderList.Count;
+				for (int i = 0; i < jobColliderList.Count; ++i)
+					prop.GetArrayElementAtIndex(i).objectReferenceValue = jobColliderList[i];
+				so.ApplyModifiedProperties();
 			}
-		}
-		[MenuItem("UTJ/選択したオブジェクトのSpringBoneをJob化（可逆）")]
-		public static void ConvertSpringJob() {
-			if (EditorApplication.isPlaying || Application.isPlaying && EditorApplication.isCompiling)
-				return;
-
-			var activeObject = Selection.activeGameObject;
-
-			// SpringManager
-			var managers = activeObject.GetComponentsInChildren<SpringManager>(true);
-			foreach (var manager in managers) {
-				if (!manager.gameObject.TryGetComponent<SpringJobManager>(out var jobManager)) {
-					jobManager = manager.gameObject.AddComponent<SpringJobManager>();
-				}
-				//jobManager.dynamicRatio = manager.dynamicRatio;
-				jobManager.dynamicRatio = 1f; // 従来版とJob版で取り扱いが異なる
-				jobManager.gravity = manager.gravity;
-				jobManager.bounce = manager.bounce;
-				jobManager.friction = manager.friction;
-				jobManager.enableAngleLimits = manager.enableAngleLimits;
-				jobManager.enableCollision = manager.enableCollision;
-				jobManager.enableLengthLimits = manager.enableLengthLimits;
-				jobManager.collideWithGround = manager.collideWithGround;
-				jobManager.groundHeight = manager.groundHeight;
-
-				//NOTE: Awake走るので消す
-				Object.DestroyImmediate(manager);
-			}
-			// SpringCollider
-			var spheres = activeObject.GetComponentsInChildren<SpringSphereCollider>(true);
-			foreach (var sphere in spheres) {
-				if (!sphere.gameObject.TryGetComponent<SpringCollider>(out var collider)) {
-					collider = sphere.gameObject.AddComponent<SpringCollider>();
-				}
-				collider.type = ColliderType.Sphere;
-				collider.radius = sphere.radius;
-
-				collider.enabled = false;
-			}
-			// CapsulegCollider
-			var capsules = activeObject.GetComponentsInChildren<SpringCapsuleCollider>(true);
-			foreach (var capsule in capsules) {
-				if (!capsule.gameObject.TryGetComponent<SpringCollider>(out var collider)) {
-					collider = capsule.gameObject.AddComponent<SpringCollider>();
-				}
-				collider.type = ColliderType.Capsule;
-				collider.radius = capsule.radius;
-				collider.height = capsule.height;
-
-				collider.enabled = false;
-			}
-			// PanelCollider
-			var panels = activeObject.GetComponentsInChildren<SpringPanelCollider>(true);
-			foreach (var panel in panels) {
-				if (!panel.gameObject.TryGetComponent<SpringCollider>(out var collider)) {
-					collider = panel.gameObject.AddComponent<SpringCollider>();
-				}
-				collider.type = ColliderType.Panel;
-				collider.width = panel.width;
-				collider.height = panel.height;
-
-				collider.enabled = false;
-			}
+			var sphere = activeObject.GetComponentsInChildren<SpringSphereCollider>(true);
+			foreach (var s in sphere)
+				Object.DestroyImmediate(s);
+			var capsule = activeObject.GetComponentsInChildren<SpringCapsuleCollider>(true);
+			foreach (var s in capsule)
+				Object.DestroyImmediate(s);
+			var panel = activeObject.GetComponentsInChildren<SpringPanelCollider>(true);
+			foreach (var s in panel)
+				Object.DestroyImmediate(s);
 		}
 	}
 }

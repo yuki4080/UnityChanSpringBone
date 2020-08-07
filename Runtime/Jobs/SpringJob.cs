@@ -1,6 +1,7 @@
 using Unity.Collections;
 using Unity.Jobs;
 using UnityEngine;
+using FUtility;
 
 namespace Unity.Animations.SpringBones.Jobs {
 	/// <summary>
@@ -33,7 +34,8 @@ namespace Unity.Animations.SpringBones.Jobs {
 		public float radius;
 		public float springLength;
 		public Vector3 boneAxis;
-		public int collisionMask;
+		//public int collisionMask;
+		public NestedNativeSlice<int> collisionNumbers;
 
 		public int pivotIndex;  // PivotがSpringBoneだった場合のIndex（違う場合 -1）
 		public Matrix4x4 pivotLocalMatrix;
@@ -73,13 +75,13 @@ namespace Unity.Animations.SpringBones.Jobs {
 	/// </summary>
 	[Burst.BurstCompile]
 	public struct SpringJob : IJobParallelFor {
-		[ReadOnly] public NativeSlice<SpringJobChild> jobArray;
+		[ReadOnly] public NativeSlice<SpringJobChild> jobManagers;
 
 		/// <summary>
 		/// ジョブ実行
 		/// </summary>
 		void IJobParallelFor.Execute(int index) {
-			this.jobArray[index].Execute();
+			this.jobManagers[index].Execute();
 		}
 	}
 
@@ -279,15 +281,17 @@ namespace Unity.Animations.SpringBones.Jobs {
 
 			var properties = this.nestedColliderProperties.Convert();
 			var components = this.nestedColliderComponents.Convert();
-			var length = properties.Length;
+			var numbers = prop.collisionNumbers.Convert();
+			var length = numbers.Length;
 			for (var i = 0; i < length; ++i) {
-				var collider = properties[i];
-				var colliderTransform = components[i];
+				var num = numbers[i];
+				var collider = properties[num];
+				var colliderTransform = components[num];
 
-				// comment out for testing
-				if ((prop.collisionMask & (1 << collider.layer)) == 0) {
-					continue;
-				}
+				//// comment out for testing
+				//if ((prop.collisionMask & (1 << collider.layer)) == 0) {
+				//	continue;
+				//}
 
 				switch (collider.type) {
 					case ColliderType.Capsule:

@@ -24,8 +24,7 @@ namespace Unity.Animations.SpringBones.Jobs {
     /// </summary>
     [System.Serializable]
     public struct SpringColliderProperties {
-        public int index;
-        public int layer;
+        //public int layer;
         public ColliderType type;
         public float radius;
         public float width;

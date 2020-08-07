@@ -5,7 +5,10 @@ namespace Unity.Animations.SpringBones.Jobs
 {
     // Authoring component
     public class SpringCollider : MonoBehaviour {
-        public int layer;
+        [System.NonSerialized]
+        public int index;
+
+        //public int layer;
         public ColliderType type;
         public float radius;
         public float width;

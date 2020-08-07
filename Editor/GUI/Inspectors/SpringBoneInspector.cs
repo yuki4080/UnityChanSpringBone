@@ -21,20 +21,20 @@ namespace Unity.Animations.SpringBones
 
             var bone = (SpringBone)target;
 
-            if (m_propMask != null)
-            {
-                GUILayout.BeginVertical("box");
-                GUILayout.Label("Job Collision", "BoldLabel");
-                var oldMaskValue = m_propMask.intValue;
-                var newMaskValue = EditorGUILayout.MaskField("Collision Mask", oldMaskValue,
-                    SpringBoneLayerSettings.GetOrCreateSettings().Layers);
-                if (oldMaskValue != newMaskValue)
-                {
-                    m_propMask.intValue = newMaskValue;
-                }
-                GUILayout.EndVertical();
-                GUILayout.Space(10f);
-            }
+            //if (m_propMask != null)
+            //{
+            //    GUILayout.BeginVertical("box");
+            //    GUILayout.Label("Job Collision", "BoldLabel");
+            //    var oldMaskValue = m_propMask.intValue;
+            //    var newMaskValue = EditorGUILayout.MaskField("Collision Mask", oldMaskValue,
+            //        SpringBoneLayerSettings.GetOrCreateSettings().Layers);
+            //    if (oldMaskValue != newMaskValue)
+            //    {
+            //        m_propMask.intValue = newMaskValue;
+            //    }
+            //    GUILayout.EndVertical();
+            //    GUILayout.Space(10f);
+            //}
 
             if (GUILayout.Button("基点を選択", SpringBoneGUIStyles.ButtonStyle))
             {
@@ -107,7 +107,7 @@ namespace Unity.Animations.SpringBones
         private bool showOriginalInspector = false;
         private Inspector3DRenderer renderer;
 
-        private SerializedProperty m_propMask;
+        //private SerializedProperty m_propMask;
 
         private void RenderAngleLimits
         (
@@ -283,12 +283,20 @@ namespace Unity.Animations.SpringBones
                 new PropertyInfo("lengthLimitTargets", "ターゲット")
             };
 
-            var collisionProperties = new PropertyInfo[] {
-                new PropertyInfo("radius", "半径"),
-                new PropertyInfo("sphereColliders", "球体"),
-                new PropertyInfo("capsuleColliders", "カプセル"),
-                new PropertyInfo("panelColliders", "板")
-            };
+            PropertyInfo[] collisionProperties;
+            if (jobManagers.Length > 0) {
+                collisionProperties = new PropertyInfo[] {
+                    new PropertyInfo("radius", "半径"),
+                    new PropertyInfo("jobColliders", "コリジョン"),
+                };
+            } else {
+                collisionProperties = new PropertyInfo[] {
+                    new PropertyInfo("radius", "半径"),
+                    new PropertyInfo("sphereColliders", "球体"),
+                    new PropertyInfo("capsuleColliders", "カプセル"),
+                    new PropertyInfo("panelColliders", "板")
+                };
+            }
 
             propertySets = new PropertySet[] {
                 new PropertySet("力", forceProperties), 
@@ -302,7 +310,7 @@ namespace Unity.Animations.SpringBones
                 set.Initialize(serializedObject);
             }
 
-            m_propMask = serializedObject.FindProperty("collisionMask");
+            //m_propMask = serializedObject.FindProperty("collisionMask");
         }
 
         private static void SelectSpringManager(SpringBone bone)

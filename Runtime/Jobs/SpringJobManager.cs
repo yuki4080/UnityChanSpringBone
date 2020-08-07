@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Unity.Collections;
 using UnityEngine;
 using System.Linq;
+using FUtility;
 
 namespace Unity.Animations.SpringBones.Jobs {
 	public class SpringJobManager : MonoBehaviour {
@@ -29,12 +30,13 @@ namespace Unity.Animations.SpringBones.Jobs {
 		private SpringJobChild job;
 
 		// ジョブ渡しバッファ
-		private int boneIndex, colIndex, lengthIndex;
+		private int boneIndex, colIndex, colNumberIndex, lengthIndex;
 		private NativeSlice<SpringBoneProperties> properties;
 		private NativeSlice<SpringColliderProperties> colProperties;
 		private NativeSlice<LengthLimitProperties> lengthProperties;
 
 		private bool initialized = false;
+		public bool isActive => this.initialized;
 
 		private static int GetObjectDepth(Transform inObject) {
 			var depth = 0;
@@ -75,23 +77,21 @@ namespace Unity.Animations.SpringBones.Jobs {
 			this.FindSpringBones(true);
 
 			var nSpringBones = this.springBones.Length;
-
 			scheduler.properties.Alloc(nSpringBones, out this.boneIndex, out this.properties);
-
-			this.InitializeSpringBoneComponent(scheduler);
 
 			// Colliders
 			var colliders = this.GetComponentsInChildren<SpringCollider>(true);
 			int nColliders = colliders.Length;
 			scheduler.colProperties.Alloc(nColliders, out this.colIndex, out this.colProperties);
 			for (int i = 0; i < nColliders; ++i) {
+				colliders[i].index = i;
 				Transform tr = colliders[i].transform;
 				var comp = new SpringColliderProperties() {
-                    layer = colliders[i].layer,
-                    type = colliders[i].type,
-                    radius = colliders[i].radius,
-                    width = colliders[i].width,
-                    height = colliders[i].height,
+					//layer = colliders[i].layer,
+					type = colliders[i].type,
+					radius = colliders[i].radius,
+					width = colliders[i].width,
+					height = colliders[i].height,
 				};
 				this.colProperties[i] = comp;
 				scheduler.colliderTransforms[this.colIndex + i] = tr;
@@ -99,6 +99,8 @@ namespace Unity.Animations.SpringBones.Jobs {
 				if (this.optimizeTransform)
 					Object.DestroyImmediate(colliders[i]);
 			}
+
+			this.InitializeSpringBoneComponent(scheduler);
 
 			var setting = new SpringBoneSettings() {
 				dynamicRatio = this.dynamicRatio,
@@ -145,6 +147,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 				scheduler.boneTransforms[index] = null;
 				scheduler.boneParentTransforms[index] = null;
 				scheduler.bonePivotTransforms[index] = null;
+				scheduler.colNumbers.Free(this.properties[i].collisionNumbers);
 			}
 			for (int i = 0; i < this.colProperties.Length; ++i)
 				scheduler.colliderTransforms[this.colIndex + i] = null;
@@ -220,6 +223,13 @@ namespace Unity.Animations.SpringBones.Jobs {
 					}
 				}
 
+				// 各ボーン毎にコリジョンインデックスを分配
+				var nSpringBoneColliders = springBone.jobColliders.Length;
+				scheduler.colNumbers.Alloc(nSpringBoneColliders, out var colNumberIndex, out var collisionNumbers);
+				for (int m = 0; m < nSpringBoneColliders; ++m)
+					collisionNumbers[m] = springBone.jobColliders[m].index;
+				var nestedCollisionNumbers = new NestedNativeSlice<int>(collisionNumbers);
+				// ReadOnly
 				this.properties[i] = new SpringBoneProperties {
 					stiffnessForce = springBone.stiffnessForce,
 					dragForce = springBone.dragForce,
@@ -239,7 +249,8 @@ namespace Unity.Animations.SpringBones.Jobs {
 					radius = springBone.radius,
 					boneAxis = boneAxis,
 					springLength = springLength,
-                    collisionMask = springBone.collisionMask,
+					//collisionMask = springBone.collisionMask,
+					collisionNumbers = nestedCollisionNumbers,
 
 					pivotIndex = pivotIndex,
 					pivotLocalMatrix = pivotLocalMatrix,

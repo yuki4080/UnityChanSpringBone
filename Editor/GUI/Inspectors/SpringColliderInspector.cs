@@ -27,16 +27,16 @@ namespace Unity.Animations.SpringBones.Jobs
         private SerializedProperty m_propRadius;
         private SerializedProperty m_propWidth;
         private SerializedProperty m_propHeight;
-        private SpringBoneLayerSettings m_layerSettings;
+        //private SpringBoneLayerSettings m_layerSettings;
         
         public override void OnInspectorGUI()
         {
             serializedObject.Update();
-            var newSelectedIndex = EditorGUILayout.Popup(Styles.layerLabel, m_propLayer.intValue, m_layerSettings.Layers);
-            if (m_propLayer.intValue != newSelectedIndex)
-            {
-                m_propLayer.intValue = newSelectedIndex;
-            }
+            //var newSelectedIndex = EditorGUILayout.Popup(Styles.layerLabel, m_propLayer.intValue, m_layerSettings.Layers);
+            //if (m_propLayer.intValue != newSelectedIndex)
+            //{
+            //    m_propLayer.intValue = newSelectedIndex;
+            //}
 
             EditorGUILayout.PropertyField(m_propType, Styles.shapeLabel);
 
@@ -73,7 +73,7 @@ namespace Unity.Animations.SpringBones.Jobs
 
         private void OnEnable()
         {
-            m_layerSettings = SpringBoneLayerSettings.GetOrCreateSettings();
+            //m_layerSettings = SpringBoneLayerSettings.GetOrCreateSettings();
             
             m_propLayer = serializedObject.FindProperty("layer");
             m_propType = serializedObject.FindProperty("type");

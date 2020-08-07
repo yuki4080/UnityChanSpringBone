@@ -16,7 +16,7 @@ namespace FUtility {
     public delegate int MatchHandler<T>(T obj); // 1:HIT, 0:MISS, -1:BREAK
 
     // タスク
-    internal sealed class Task<T> {
+    public sealed class Task<T> {
         public T item = default(T);
         public Task<T> prev = null;
         public Task<T> next = null;
@@ -138,19 +138,47 @@ namespace FUtility {
             this.activeTask[this.freeCount-1] = task;
         }
 
-        // 今回不要
-        //// 全タスクに指令
-        //public void Order(OrderHandler<T> order) {
-        //    int no = 0;
-        //    Task<T> now = null;
-        //    for (Task<T> task = this.top; task != null && this.actCount > 0;) {
-        //        now = task;
-        //        task = task.next;
-        //        if (!order(now.item, no))
-        //            this.Detach(now);
-        //        ++no;
-        //    }
-        //}
+        /// <summary>
+        /// 接続解除
+        /// </summary>
+        /// <param name="match">条件式</param>
+        public bool Detach(MatchHandler<T> match) {
+            bool result = false;
+            int no = 0;
+            Task<T> now = null;
+            for (Task<T> task = this.top; task != null && this.actCount > 0;) {
+                // MEMO: 切断されても良い様に最初にノードを更新する
+                now = task;
+                task = task.next;
+
+                int ret = match(now.item);
+                if (ret != 0) {
+                    this.Detach(now);
+                    result = true;
+                }
+                // 中断
+                if (ret < 0)
+                    break;
+                ++no;
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// 全タスクに指令
+        /// </summary>
+        /// <param name="order"></param>
+        public void Order(OrderHandler<T> order) {
+            int no = 0;
+            Task<T> now = null;
+            for (Task<T> task = this.top; task != null && this.actCount > 0;) {
+                now = task;
+                task = task.next;
+                if (!order(now.item, no))
+                    this.Detach(now);
+                ++no;
+            }
+        }
 
         /// <summary>
         /// 条件指定に沿ったアイテムを返す
