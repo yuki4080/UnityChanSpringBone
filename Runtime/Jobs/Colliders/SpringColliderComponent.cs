@@ -37,8 +37,6 @@ namespace Unity.Animations.SpringBones.Jobs {
     /// </summary>
     [System.Serializable]
     public struct SpringColliderComponents {
-        public Vector3 position;
-        public Quaternion rotation;
         public Matrix4x4 worldToLocalMatrix;
         public Matrix4x4 localToWorldMatrix;
     }

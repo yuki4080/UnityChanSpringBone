@@ -64,7 +64,7 @@ namespace Unity.Animations.SpringBones.Jobs
                     localMoverPosition = ComputeNewTailPosition_Sphere(intersection, localMoverPosition);
                     var localToWorld = transform.localToWorldMatrix;
                     moverPosition = localToWorld.MultiplyPoint3x4(localMoverPosition);
-                    var localHitNormal = localMoverPosition - sphereOrigin;
+                    var localHitNormal = Vector3.Normalize(localMoverPosition - sphereOrigin);
                     hitNormal = Vector3.Normalize(localToWorld.MultiplyVector(localHitNormal));
                 }
 

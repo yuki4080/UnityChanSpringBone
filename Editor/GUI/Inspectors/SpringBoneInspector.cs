@@ -51,6 +51,11 @@ namespace Unity.Animations.SpringBones
             {
                 EditorGUILayout.ObjectField("マネージャー", managers[managerIndex], typeof(SpringManager), true);
             }
+            managerCount = jobManagers.Length;
+            for (int managerIndex = 0; managerIndex < managerCount; managerIndex++)
+            {
+                EditorGUILayout.ObjectField("マネージャー", jobManagers[managerIndex], typeof(Jobs.SpringJobManager), true);
+            }
             var newEnabled = EditorGUILayout.Toggle("有効", bone.enabled);
             GUILayout.EndVertical();
 
@@ -97,6 +102,7 @@ namespace Unity.Animations.SpringBones
         private const float Spacing = 16f;
 
         private SpringManager[] managers;
+        private Jobs.SpringJobManager[] jobManagers;
         private PropertySet[] propertySets;
         private bool showOriginalInspector = false;
         private Inspector3DRenderer renderer;
@@ -237,6 +243,19 @@ namespace Unity.Animations.SpringBones
                 .Select(target => target as Component)
                 .Where(target => target != null)
                 .Select(target => target.GetComponentInParent<SpringManager>())
+                .Where(manager => manager != null)
+                .Distinct()
+                .ToArray();
+
+            if (jobManagers != null && jobManagers.Length > 0)
+            {
+                return;
+            }
+
+            jobManagers = targets
+                .Select(target => target as Component)
+                .Where(target => target != null)
+                .Select(target => target.GetComponentInParent<Jobs.SpringJobManager>())
                 .Where(manager => manager != null)
                 .Distinct()
                 .ToArray();

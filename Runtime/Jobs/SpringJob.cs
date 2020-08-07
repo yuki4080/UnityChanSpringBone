@@ -39,7 +39,6 @@ namespace Unity.Animations.SpringBones.Jobs {
 		public Matrix4x4 pivotLocalMatrix;
 
 		public int lengthLimitIndex;
-		public int lengthLimitLength;
 
 		public int parentIndex; // 親がSpringBoneだった場合のIndex（違う場合 -1）
 		public Vector3 localPosition;
@@ -50,14 +49,14 @@ namespace Unity.Animations.SpringBones.Jobs {
 	/// 更新されるボーン毎の値（Read/Write in Job）
 	/// </summary>
 	[System.Serializable]
-	public struct SpringBoneComponent {
+	public struct SpringBoneComponents {
 		public Vector3 currentTipPosition;
 		public Vector3 previousTipPosition;
 		public Quaternion localRotation;
 		public Vector3 position;
 		public Quaternion rotation;
-		public Vector3 parentPosition;
-		public Quaternion parentRotation;
+		//public Vector3 parentPosition;
+		//public Quaternion parentRotation;
 	}
 
 	/// <summary>
@@ -73,23 +72,14 @@ namespace Unity.Animations.SpringBones.Jobs {
 	/// SpringBone計算ジョブ
 	/// </summary>
 	[Burst.BurstCompile]
-	public struct SpringJob : IJob {
-		[ReadOnly] public NativeArray<SpringBoneProperties> properties;
-		[ReadOnly] public NativeArray<SpringColliderProperties> colProperties;
-		[ReadOnly] public NativeArray<SpringColliderComponents> colComponents;
-		[ReadOnly] public NativeArray<LengthLimitProperties> lengthProperties;
-		[ReadOnly] public NativeArray<Vector3> lengthComponents;
-		[ReadOnly] public NativeArray<Matrix4x4> pivotComponents;
+	public struct SpringJob : IJobParallelFor {
 		[ReadOnly] public NativeSlice<SpringJobChild> jobArray;
-
-		public NativeArray<SpringBoneComponent> components;
 
 		/// <summary>
 		/// ジョブ実行
 		/// </summary>
-		void IJob.Execute() {
-			for (int i = 0; i < this.jobArray.Length; ++i)
-				this.jobArray[i].Execute(ref this);
+		void IJobParallelFor.Execute(int index) {
+			this.jobArray[index].Execute();
 		}
 	}
 
@@ -99,38 +89,56 @@ namespace Unity.Animations.SpringBones.Jobs {
 	public partial struct SpringJobChild {
 		public float deltaTime;
 		public SpringBoneSettings settings;
-		public int boneIndex, boneCount;
-		public int colIndex, colCount;
-		public int lengthIndex, lengthCount;
+		public NestedNativeSlice<SpringBoneProperties> nestedProperties;
+		public NestedNativeSlice<SpringBoneComponents> nestedComponents;
+		public NestedNativeSlice<Matrix4x4> nestedParentComponents;
+		public NestedNativeSlice<Matrix4x4> nestedPivotComponents;
+		public NestedNativeSlice<SpringColliderProperties> nestedColliderProperties;
+		public NestedNativeSlice<SpringColliderComponents> nestedColliderComponents;
+		public NestedNativeSlice<LengthLimitProperties> nestedLengthLimitProperties;
+		public NestedNativeSlice<Vector3> nestedLengthLimitComponents;
 
 		/// <summary>
 		/// ジョブ実行
 		/// </summary>
-		public void Execute(ref SpringJob job) {
-			var length = this.boneCount;
-			for (int i = 0; i < length; ++i) {
-				var index = this.boneIndex + i;
-				var bone = job.components[index];
-				var prop = job.properties[index];
+		public void Execute() {
+			var properties = this.nestedProperties.Convert();
+			var components = this.nestedComponents.Convert();
+			var parentComponents = this.nestedParentComponents.Convert();
+			var length = properties.Length;
 
+			for (int i = 0; i < length; ++i) {
+				var bone = components[i];
+				var prop = properties[i];
+
+				Quaternion parentRot;
 				if (prop.parentIndex >= 0) {
 					// 親ノードがSpringBoneなら演算結果を反映する
-					var parentBone = job.components[this.boneIndex + prop.parentIndex];
-					bone.parentPosition = parentBone.position;
-					bone.parentRotation = parentBone.rotation;
+					var parentBone = components[prop.parentIndex];
+					parentRot = parentBone.rotation;
+					bone.position = parentBone.position + parentBone.rotation * prop.localPosition;
+					bone.rotation = parentRot * bone.localRotation;
+				} else {
+					var parentMat = parentComponents[i];
+					parentRot = parentMat.rotation;
+					//bone.position = parentMat.MultiplyPoint3x4(prop.localPosition);
+					bone.position = new Vector3(parentMat.m03, parentMat.m13, parentMat.m23) + parentRot * prop.localPosition;
+					bone.rotation = parentRot * bone.localRotation;
 				}
-				bone.position = bone.parentPosition + bone.parentRotation * prop.localPosition;
-				bone.rotation = bone.parentRotation * bone.localRotation;
 
-				var baseWorldRotation = bone.parentRotation * prop.initialLocalRotation;
+				var baseWorldRotation = parentRot * prop.initialLocalRotation;
 				this.UpdateSpring(ref bone, in prop, in baseWorldRotation);
-				this.ResolveCollisionsAndConstraints(in job, ref bone, in prop, index);
+				this.ResolveCollisionsAndConstraints(ref bone, in prop, i, components);
 				this.UpdateRotation(ref bone, in prop, in baseWorldRotation);
-				job.components[index] = bone;
+				
+				// NOTE: 子の為に更新する
+				bone.rotation = parentRot * bone.localRotation;
+
+				components[i] = bone;
 			}
 		}
 
-		private void UpdateSpring(ref SpringBoneComponent bone, in SpringBoneProperties prop, in Quaternion baseWorldRotation) {
+		private void UpdateSpring(ref SpringBoneComponents bone, in SpringBoneProperties prop, in Quaternion baseWorldRotation) {
 			var orientedInitialPosition = bone.position + baseWorldRotation * prop.boneAxis * prop.springLength;
 
 			// Hooke's law: force to push us to equilibrium
@@ -162,9 +170,9 @@ namespace Unity.Animations.SpringBones.Jobs {
 			bone.currentTipPosition = headPosition + prop.springLength * headToTail;
 		}
 
-		private void ResolveCollisionsAndConstraints(in SpringJob job, ref SpringBoneComponent bone, in SpringBoneProperties prop, int index) {
+		private void ResolveCollisionsAndConstraints(ref SpringBoneComponents bone, in SpringBoneProperties prop, int index, NativeSlice<SpringBoneComponents> boneComponents) {
 			if (this.settings.enableLengthLimits)
-				this.ApplyLengthLimits(in job, ref bone, in prop);
+				this.ApplyLengthLimits(ref bone, in prop, boneComponents);
 
 			var hadCollision = false;
 
@@ -172,37 +180,37 @@ namespace Unity.Animations.SpringBones.Jobs {
 				hadCollision = this.ResolveGroundCollision(ref bone, in prop);
 
 			if (this.settings.enableCollision && !hadCollision)
-				this.ResolveCollisions(in job, ref bone, in prop);
+				this.ResolveCollisions(ref bone, in prop);
 
 			if (this.settings.enableAngleLimits) {
 				Matrix4x4 pivotLocalToWorld;
 				if (prop.pivotIndex >= 0) {
-					var pivotBone = job.components[this.boneIndex + prop.pivotIndex];
+					var pivotBone = boneComponents[prop.pivotIndex];
 					pivotLocalToWorld = Matrix4x4.TRS(pivotBone.position, pivotBone.rotation, Vector3.one) * prop.pivotLocalMatrix;
 				} else {
-					pivotLocalToWorld = job.pivotComponents[index];
+					var pivotComponents = this.nestedPivotComponents.Convert();
+					pivotLocalToWorld = pivotComponents[index];
 				}
 				this.ApplyAngleLimits(ref bone, in prop, in pivotLocalToWorld);
 			}
 		}
 
 		// Returns the new tip position
-		private void ApplyLengthLimits(in SpringJob job, ref SpringBoneComponent bone, in SpringBoneProperties prop) {
-			var targetCount = prop.lengthLimitLength;
-			if (targetCount == 0)
+		private void ApplyLengthLimits(ref SpringBoneComponents bone, in SpringBoneProperties prop, NativeSlice<SpringBoneComponents> boneComponents) {
+			var properties = this.nestedLengthLimitProperties.Convert();
+			var length = properties.Length;
+			if (length < 1)
 				return;
 
 			const float SpringConstant = 0.5f;
+			var components = this.nestedLengthLimitComponents.Convert();
 			var accelerationMultiplier = SpringConstant * this.deltaTime * this.deltaTime;
 			var movement = Vector3.zero;
-			var start = prop.lengthLimitIndex;
-			var length = start + prop.lengthLimitLength;
-			for (int i = start; i < length; ++i) {
-				int index = this.lengthIndex + i;
-				var limit = job.lengthProperties[index];
+			for (int i = 0; i < length; ++i) {
+				var limit = properties[i];
 				var lengthToLimitTarget = limit.target;
-				var limitPosition = (limit.targetIndex >= 0) ? job.components[this.boneIndex + limit.targetIndex].position
-															 : job.lengthComponents[this.lengthIndex + index];
+				var limitPosition = (limit.targetIndex >= 0) ? boneComponents[limit.targetIndex].position
+															 : components[i];
 				var currentToTarget = bone.currentTipPosition - limitPosition;
 				//var currentDistanceSquared = Vector3.SqrMagnitude(currentToTarget);
 
@@ -217,7 +225,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			bone.currentTipPosition += movement;
 		}
 
-		private bool ResolveGroundCollision(ref SpringBoneComponent bone, in SpringBoneProperties prop) {
+		private bool ResolveGroundCollision(ref SpringBoneComponents bone, in SpringBoneProperties prop) {
 			var groundHeight = this.settings.groundHeight;
 			// Todo: this assumes a flat ground parallel to the xz plane
 			var worldHeadPosition = bone.position;
@@ -241,7 +249,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			return collidingWithGround;
 		}
 
-		private static Vector3 FixBoneLength(ref SpringBoneComponent bone, in SpringBoneProperties prop, in Vector3 tailPosition) {
+		private static Vector3 FixBoneLength(ref SpringBoneComponents bone, in SpringBoneProperties prop, in Vector3 tailPosition) {
 			var minLength = 0.5f * prop.springLength;
 			var maxLength = prop.springLength;
 			var headPosition = bone.position;
@@ -259,7 +267,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			return headPosition + (newMagnitude / magnitude) * headToTail;
 		}
 
-		private bool ResolveCollisions(in SpringJob job, ref SpringBoneComponent bone, in SpringBoneProperties prop) {
+		private bool ResolveCollisions(ref SpringBoneComponents bone, in SpringBoneProperties prop) {
 			var desiredPosition = bone.currentTipPosition;
 			var headPosition = bone.position;
 
@@ -269,10 +277,12 @@ namespace Unity.Animations.SpringBones.Jobs {
 
 			var hadCollision = false;
 
-			var length = this.colCount;
+			var properties = this.nestedColliderProperties.Convert();
+			var components = this.nestedColliderComponents.Convert();
+			var length = properties.Length;
 			for (var i = 0; i < length; ++i) {
-				var collider = job.colProperties[this.colIndex + i];
-				var colliderTransform = job.colComponents[this.colIndex + i];
+				var collider = properties[i];
+				var colliderTransform = components[i];
 
 				// comment out for testing
 				if ((prop.collisionMask & (1 << collider.layer)) == 0) {
@@ -321,7 +331,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			return hadCollision;
 		}
 
-		private void ApplyAngleLimits(ref SpringBoneComponent bone, in SpringBoneProperties prop, in Matrix4x4 pivotLocalToWorld) {
+		private void ApplyAngleLimits(ref SpringBoneComponents bone, in SpringBoneProperties prop, in Matrix4x4 pivotLocalToWorld) {
 			if (!prop.yAngleLimits.active && !prop.zAngleLimits.active)
 				return;
 
@@ -352,7 +362,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			bone.currentTipPosition = origin + vector;
 		}
 
-		private void UpdateRotation(ref SpringBoneComponent bone, in SpringBoneProperties prop, in Quaternion baseWorldRotation) {
+		private void UpdateRotation(ref SpringBoneComponents bone, in SpringBoneProperties prop, in Quaternion baseWorldRotation) {
 			if (float.IsNaN(bone.currentTipPosition.x)
 				| float.IsNaN(bone.currentTipPosition.y)
 				| float.IsNaN(bone.currentTipPosition.z))
@@ -364,10 +374,9 @@ namespace Unity.Animations.SpringBones.Jobs {
 
 			var actualLocalRotation = ComputeLocalRotation(in baseWorldRotation, ref bone, in prop);
 			bone.localRotation = Quaternion.Lerp(bone.localRotation, actualLocalRotation, this.settings.dynamicRatio);
-			bone.rotation = bone.parentRotation * bone.localRotation;
 		}
 
-		private Quaternion ComputeLocalRotation(in Quaternion baseWorldRotation, ref SpringBoneComponent bone, in SpringBoneProperties prop) {
+		private Quaternion ComputeLocalRotation(in Quaternion baseWorldRotation, ref SpringBoneComponents bone, in SpringBoneProperties prop) {
 			var worldBoneVector = bone.currentTipPosition - bone.position;
 			var localBoneVector = Quaternion.Inverse(baseWorldRotation) * worldBoneVector;
 			localBoneVector.Normalize();

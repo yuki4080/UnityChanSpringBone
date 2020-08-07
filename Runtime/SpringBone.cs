@@ -8,7 +8,9 @@ namespace Unity.Animations.SpringBones
     {
         //********************************************************
         // extend param for Job
+        [System.NonSerialized]
 		public int index = 0;          // number of SpringBone
+
         public int collisionMask = -1; // calcurate collision layer
         //********************************************************
 

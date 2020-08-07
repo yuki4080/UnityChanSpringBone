@@ -22,20 +22,17 @@ namespace Unity.Animations.SpringBones.Jobs {
 			MAX,
 		}
 
-		[SerializeField]
 		private int registerCapacity = 32;     // 登録最大数
-		[SerializeField]
 		private int boneCapacity = 512;        // ボーン最大数
-		[SerializeField]
 		private int collisionCapacity = 512;   // コリジョン最大数
-		[SerializeField]
 		private int lengthLimitCapacity = 256; // 長さ制限最大数
 
 		private static SpringJobScheduler instance = null;
 
 		// ジョブ渡しバッファ
 		internal NativeContainerPool<SpringBoneProperties> properties;
-		internal NativeArray<SpringBoneComponent> components;
+		internal NativeArray<SpringBoneComponents> components;
+		internal NativeArray<Matrix4x4> parentComponents;
 		internal NativeArray<Matrix4x4> pivotComponents;
 		internal NativeContainerPool<SpringColliderProperties> colProperties;
 		internal NativeArray<SpringColliderComponents> colComponents;
@@ -73,7 +70,8 @@ namespace Unity.Animations.SpringBones.Jobs {
 			//JobsUtility.JobWorkerCount = workerCount;
 
 			this.properties = new NativeContainerPool<SpringBoneProperties>(this.boneCapacity, this.registerCapacity);
-			this.components = new NativeArray<SpringBoneComponent>(this.boneCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+			this.components = new NativeArray<SpringBoneComponents>(this.boneCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+			this.parentComponents = new NativeArray<Matrix4x4>(this.boneCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 			this.pivotComponents = new NativeArray<Matrix4x4>(this.boneCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 			this.colProperties = new NativeContainerPool<SpringColliderProperties>(this.collisionCapacity, this.registerCapacity);
 			this.colComponents = new NativeArray<SpringColliderComponents>(this.collisionCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
@@ -95,9 +93,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			this.lengthLimitTransforms = new TransformAccessArray(new Transform[this.lengthLimitCapacity], desiredJobCount);
 
 			this.applyJob.components = this.components;
-			//this.parentJob.properties = this.properties.nativeArray;
-			this.parentJob.components = this.components;
-			//this.pivotJob.properties = this.properties.nativeArray;
+			this.parentJob.components = this.parentComponents;
 			this.pivotJob.components = this.pivotComponents;
 			this.colliderJob.components = this.colComponents;
 			this.lengthLimitJob.properties = this.lengthProperties.nativeArray;
@@ -105,14 +101,6 @@ namespace Unity.Animations.SpringBones.Jobs {
 
 			this.managerJobs = new NativeArray<SpringJobChild>(this.registerCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 			this.preHandle = new NativeArray<JobHandle>((int)TRANSFORM_JOB.MAX, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-
-			this.springJob.pivotComponents = this.pivotComponents;
-			this.springJob.components = this.components;
-			this.springJob.properties = this.properties.nativeArray;
-			this.springJob.colProperties = this.colProperties.nativeArray;
-			this.springJob.colComponents = this.colComponents;
-			this.springJob.lengthProperties = this.lengthProperties.nativeArray;
-			this.springJob.lengthComponents = this.lengthComponents;
 		}
 
 		void OnDestroy() {
@@ -135,6 +123,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 
 			this.properties.Dispose();
 			this.components.Dispose();
+			this.parentComponents.Dispose();
 			this.pivotComponents.Dispose();
 			this.colComponents.Dispose();
 			this.colProperties.Dispose();
@@ -158,9 +147,6 @@ namespace Unity.Animations.SpringBones.Jobs {
 				return;
 			}
 
-			// NonJob for debug
-			//this.ManagedJob();
-
 #if ASYNCHRONIZE
 			// Spring結果反映
 			var applyHandle = this.applyJob.Schedule(this.boneTransforms);
@@ -176,7 +162,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			this.preHandle[(int)TRANSFORM_JOB.LENGTH_LIMIT] = this.lengthLimitJob.Schedule(this.lengthLimitTransforms);
 #endif
 			var combineHandle = JobHandle.CombineDependencies(this.preHandle);
-			this.handle = this.springJob.Schedule(combineHandle);
+			this.handle = this.springJob.Schedule(managerCount, 0, combineHandle);
 
 #if ASYNCHRONIZE
 			JobHandle.ScheduleBatchedJobs();
@@ -214,9 +200,6 @@ namespace Unity.Animations.SpringBones.Jobs {
 				activeJobs[i] = instance.managers[i].GetJob();
 
 			instance.springJob.jobArray = activeJobs;
-			//instance.pivotJob.jobArray = activeJobs;       // AngleLimit option
-			instance.colliderJob.jobArray = activeJobs;    // Collider option
-			instance.lengthLimitJob.jobArray = activeJobs; // LengthLimit option
 
 			return true;
 		}
@@ -234,79 +217,5 @@ namespace Unity.Animations.SpringBones.Jobs {
 			scheduler.Final(instance);
 			return instance.managers.Remove(scheduler); ;
 		}
-
-		/// <summary>
-		/// TransformJobを使用しない場合、テスト用
-		/// </summary>
-		//public void ManagedJob() {
-		//	Vector3 pos; Quaternion rot;
-		//	var components = this.components;
-		//	var properties = this.properties.nativeArray;
-		//	var colliders = this.colComponents.nativeArray;
-		//	var limits = this.lengthProperties.nativeArray;
-		//	var pivots = this.pivotComponents;
-
-		//	var jobChilds = this.springJob.jobArray;
-		//	int children = jobChilds.Length;
-		//	for (int jobIndex = 0; jobIndex < children; ++jobIndex) {
-		//		var job = jobChilds[jobIndex];
-		//		if (job.boneCount == 0)
-		//			continue;
-
-		//		var setting = job.settings;
-
-		//		for (var i = job.boneIndex; i < job.boneIndex + job.boneCount; ++i) {
-		//			SpringBoneComponent bone = components[i];
-		//			SpringBoneProperties prop = properties[i];
-
-		//			// Apply
-		//			this.boneTransformHandles[i].localRotation = bone.localRotation;
-
-		//			// Parent
-		//			if (prop.parentIndex < 0) {
-		//				bone.parentPosition = this.boneParentTransformHandles[i].position;
-		//				bone.parentRotation = this.boneParentTransformHandles[i].rotation;
-		//			}
-
-		//			// Pivot
-		//			if (prop.pivotIndex < 0 && setting.enableAngleLimits) {
-		//				if (prop.yAngleLimits.active > 0 || prop.zAngleLimits.active > 0) {
-		//					pos = this.bonePivotTransformHandles[i].position;
-		//					rot = this.bonePivotTransformHandles[i].rotation;
-		//					pivots[i] = Matrix4x4.TRS(pos, rot, Vector3.one);
-		//				}
-		//			}
-
-		//			components[i] = bone;
-		//		}
-
-		//		// Collider
-		//		if (setting.enableCollision) {
-		//			for (var i = job.colIndex; i < job.colIndex + job.colCount; ++i) {
-		//				pos = this.colliderTransformHandles[i].position;
-		//				rot = this.colliderTransformHandles[i].rotation;
-
-		//				var mat = Matrix4x4.TRS(pos, rot, Vector3.one);
-		//				colliders[i] = new SpringColliderComponents {
-		//					position = pos,
-		//					rotation = rot,
-		//					localToWorldMatrix = mat,
-		//					worldToLocalMatrix = Matrix4x4.Inverse(mat),
-		//				};
-		//			}
-		//		}
-
-		//		// LengthLimit
-		//		if (setting.enableLengthLimits) {
-		//			for (var i = job.lengthIndex; i < job.lengthIndex + job.lengthCount; ++i) {
-		//				var component = this.lengthProperties.nativeArray[i];
-		//				if (component.targetIndex >= 0)
-		//					continue;
-		//				component.position = this.lengthLimitTransformHandles[i].position;
-		//				limits[i] = component;
-		//			}
-		//		}
-		//	}
-		//}
 	}
 }
