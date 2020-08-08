@@ -9,6 +9,7 @@ http://opensource.org/licenses/mit-license.php
 
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
+using UnityEngine;
 
 namespace FUtility {
     /// <summary>
@@ -41,6 +42,10 @@ namespace FUtility {
         /// <param name="arraySize">全体Arrayサイズ</param>
         /// <param name="blockCapacity">確保ブロック最大数</param>
         public NativeContainerPool(int arraySize, int blockCapacity) {
+            if (arraySize < 0 || blockCapacity <= 0) {
+                Debug.LogError("登録数が無効です");
+                return;
+            }
             this.array = new NativeArray<T>(arraySize, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             this.freePool = new TaskSystem<NativeBlock>(blockCapacity);
             this.usedPool = new TaskSystem<NativeBlock>(blockCapacity);
@@ -66,6 +71,12 @@ namespace FUtility {
         /// <param name="size">要求サイズ</param>
         /// <returns>確保成功</returns>
         public unsafe bool Alloc(int size, out int index, out NativeSlice<T> slice) {
+            if (size == 0) {
+                index = 0;
+                slice = default;
+                return false;
+            }
+
             NativeBlock block;
             this.needSize = size;
             if (this.freePool.Pickup(this.getFreeBlockHandler, out block)) {
@@ -98,6 +109,9 @@ namespace FUtility {
         /// </summary>
         /// <param name="slice">確保したNativeSlice</param>
         public unsafe void Free(NativeSlice<T> slice) {
+            if (slice.Stride == 0 || slice.Length == 0)
+                return;
+
             this.freeAddress = slice.GetUnsafeReadOnlyPtr<T>();
             // 使用中のブロックから回収
             if (this.usedPool.Pickup(this.getusedBlockHandler, out this.connectBlock)) {

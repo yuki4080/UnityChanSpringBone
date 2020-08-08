@@ -29,7 +29,6 @@ namespace Unity.Animations.SpringBones.Jobs {
 			// NOTE: 余計な判定を入れない方が速い模様
 			//SpringBoneProperties prop = this.properties[index];
 			//if (prop.parentIndex < 0) {
-			//SpringBoneComponent bone = this.components[index];
 				this.components[index] = transform.localToWorldMatrix;
 			//}
 		}

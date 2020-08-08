@@ -34,17 +34,16 @@ namespace Unity.Animations.SpringBones.Jobs {
 		public float radius;
 		public float springLength;
 		public Vector3 boneAxis;
-		//public int collisionMask;
-		public NestedNativeSlice<int> collisionNumbers;
+		public Vector3 localPosition;
+		public Quaternion initialLocalRotation;
+		public int parentIndex; // 親がSpringBoneだった場合のIndex（違う場合 -1）
 
 		public int pivotIndex;  // PivotがSpringBoneだった場合のIndex（違う場合 -1）
 		public Matrix4x4 pivotLocalMatrix;
 
-		public int lengthLimitIndex;
+		public NestedNativeSlice<int> collisionNumbers;
 
-		public int parentIndex; // 親がSpringBoneだった場合のIndex（違う場合 -1）
-		public Vector3 localPosition;
-		public Quaternion initialLocalRotation;
+		public NestedNativeSlice<LengthLimitProperties> lengthLimitProps;
 	}
 
 	/// <summary>
@@ -57,8 +56,6 @@ namespace Unity.Animations.SpringBones.Jobs {
 		public Quaternion localRotation;
 		public Vector3 position;
 		public Quaternion rotation;
-		//public Vector3 parentPosition;
-		//public Quaternion parentRotation;
 	}
 
 	/// <summary>
@@ -97,7 +94,6 @@ namespace Unity.Animations.SpringBones.Jobs {
 		public NestedNativeSlice<Matrix4x4> nestedPivotComponents;
 		public NestedNativeSlice<SpringColliderProperties> nestedColliderProperties;
 		public NestedNativeSlice<SpringColliderComponents> nestedColliderComponents;
-		public NestedNativeSlice<LengthLimitProperties> nestedLengthLimitProperties;
 		public NestedNativeSlice<Vector3> nestedLengthLimitComponents;
 
 		/// <summary>
@@ -123,8 +119,8 @@ namespace Unity.Animations.SpringBones.Jobs {
 				} else {
 					var parentMat = parentComponents[i];
 					parentRot = parentMat.rotation;
-					//bone.position = parentMat.MultiplyPoint3x4(prop.localPosition);
-					bone.position = new Vector3(parentMat.m03, parentMat.m13, parentMat.m23) + parentRot * prop.localPosition;
+					bone.position = parentMat.MultiplyPoint3x4(prop.localPosition);
+					//bone.position = new Vector3(parentMat.m03, parentMat.m13, parentMat.m23) + parentRot * prop.localPosition;
 					bone.rotation = parentRot * bone.localRotation;
 				}
 
@@ -161,8 +157,6 @@ namespace Unity.Animations.SpringBones.Jobs {
 
 			const float MagnitudeThreshold = 0.001f;
 			if (magnitude <= MagnitudeThreshold) {
-				// was originally this
-				//headToTail = transform.TransformDirection(boneAxis)
 				Matrix4x4 mat = Matrix4x4.TRS(bone.position, bone.rotation, Vector3.one);
 				headToTail = mat.MultiplyVector(prop.boneAxis);
 			} else {
@@ -199,29 +193,28 @@ namespace Unity.Animations.SpringBones.Jobs {
 
 		// Returns the new tip position
 		private void ApplyLengthLimits(ref SpringBoneComponents bone, in SpringBoneProperties prop, NativeSlice<SpringBoneComponents> boneComponents) {
-			var properties = this.nestedLengthLimitProperties.Convert();
+			var properties = prop.lengthLimitProps.Convert();
 			var length = properties.Length;
-			if (length < 1)
+			if (length == 0)
 				return;
 
 			const float SpringConstant = 0.5f;
-			var components = this.nestedLengthLimitComponents.Convert();
 			var accelerationMultiplier = SpringConstant * this.deltaTime * this.deltaTime;
 			var movement = Vector3.zero;
+			var components = this.nestedLengthLimitComponents.Convert();
 			for (int i = 0; i < length; ++i) {
 				var limit = properties[i];
 				var lengthToLimitTarget = limit.target;
+				// TODO: pivotの時と同様にLengthLimitノードがSpringBoneの下についていた場合は反映が遅れてる、そのようなケースがある？
 				var limitPosition = (limit.targetIndex >= 0) ? boneComponents[limit.targetIndex].position
 															 : components[i];
 				var currentToTarget = bone.currentTipPosition - limitPosition;
-				//var currentDistanceSquared = Vector3.SqrMagnitude(currentToTarget);
+				var currentDistanceSquared = Vector3.SqrMagnitude(currentToTarget);
 
 				// Hooke's Law
-				//var currentDistance = Mathf.Sqrt(currentDistanceSquared);
-				var currentDistance = Vector3.Magnitude(currentToTarget);
+				var currentDistance = Mathf.Sqrt(currentDistanceSquared);
 				var distanceFromEquilibrium = currentDistance - lengthToLimitTarget;
-				//movement -= accelerationMultiplier * distanceFromEquilibrium * Vector3.Normalize(currentToTarget);
-				movement -= accelerationMultiplier * distanceFromEquilibrium * (currentToTarget / currentDistance);
+				movement -= accelerationMultiplier * distanceFromEquilibrium * Vector3.Normalize(currentToTarget);
 			}
 
 			bone.currentTipPosition += movement;
@@ -287,11 +280,6 @@ namespace Unity.Animations.SpringBones.Jobs {
 				var num = numbers[i];
 				var collider = properties[num];
 				var colliderTransform = components[num];
-
-				//// comment out for testing
-				//if ((prop.collisionMask & (1 << collider.layer)) == 0) {
-				//	continue;
-				//}
 
 				switch (collider.type) {
 					case ColliderType.Capsule:

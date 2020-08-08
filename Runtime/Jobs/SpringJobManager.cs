@@ -68,21 +68,31 @@ namespace Unity.Animations.SpringBones.Jobs {
 		/// <summary>
 		/// 初期化
 		/// </summary>
-		internal void Initialize(SpringJobScheduler scheduler) {
+		internal bool Initialize(SpringJobScheduler scheduler) {
 			if (this.initialized)
-				return;
+				return false;
 
 			this.initialized = true;
 
 			this.FindSpringBones(true);
 
 			var nSpringBones = this.springBones.Length;
-			scheduler.properties.Alloc(nSpringBones, out this.boneIndex, out this.properties);
+			var propAlloc = scheduler.properties.Alloc(nSpringBones, out this.boneIndex, out this.properties);
+			if (!propAlloc) {
+				Debug.LogError("Spring Boneのボーン数上限が不足しています");
+				this.Final(scheduler);
+				return false;
+			}
 
 			// Colliders
 			var colliders = this.GetComponentsInChildren<SpringCollider>(true);
 			int nColliders = colliders.Length;
-			scheduler.colProperties.Alloc(nColliders, out this.colIndex, out this.colProperties);
+			var colPropAlloc = scheduler.colProperties.Alloc(nColliders, out this.colIndex, out this.colProperties);
+			if (!colPropAlloc) {
+				Debug.LogError("不明なエラー");
+				this.Final(scheduler);
+				return false;
+			}
 			for (int i = 0; i < nColliders; ++i) {
 				colliders[i].index = i;
 				Transform tr = colliders[i].transform;
@@ -100,7 +110,11 @@ namespace Unity.Animations.SpringBones.Jobs {
 					Object.DestroyImmediate(colliders[i]);
 			}
 
-			this.InitializeSpringBoneComponent(scheduler);
+			bool success = this.InitializeSpringBoneComponent(scheduler);
+			if (!success) {
+				this.Final(scheduler);
+				return false;
+			}
 
 			var setting = new SpringBoneSettings() {
 				dynamicRatio = this.dynamicRatio,
@@ -123,7 +137,6 @@ namespace Unity.Animations.SpringBones.Jobs {
 			this.job.nestedPivotComponents = new NestedNativeSlice<Matrix4x4>(scheduler.pivotComponents, this.boneIndex, this.properties.Length);
 			this.job.nestedColliderProperties = new NestedNativeSlice<SpringColliderProperties>(this.colProperties);
 			this.job.nestedColliderComponents = new NestedNativeSlice<SpringColliderComponents>(scheduler.colComponents, this.colIndex, this.colProperties.Length);
-			this.job.nestedLengthLimitProperties = new NestedNativeSlice<LengthLimitProperties>(this.lengthProperties);
 			this.job.nestedLengthLimitComponents = new NestedNativeSlice<Vector3>(scheduler.lengthComponents, this.lengthIndex, this.lengthProperties.Length);
 
 			// Transformの階層構造をバラす
@@ -131,6 +144,8 @@ namespace Unity.Animations.SpringBones.Jobs {
 				AnimatorUtility.OptimizeTransformHierarchy(this.gameObject, null);
 				this.springBones = null;
 			}
+
+			return true;
 		}
 
 		/// <summary>
@@ -163,10 +178,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 		}
 
 		// This should be called by the SpringManager in its Awake function before any updates
-		private void InitializeSpringBoneComponent(SpringJobScheduler scheduler) {
-			List<Transform> lengthTargetList = new List<Transform>(256);
-			List<LengthLimitProperties> lengthLimitList = new List<LengthLimitProperties>(256);
-
+		private bool InitializeSpringBoneComponent(SpringJobScheduler scheduler) {
 			for (var i = 0; i < this.springBones.Length; ++i) {
 				SpringBone springBone = this.springBones[i];
 				springBone.index = i;
@@ -187,21 +199,41 @@ namespace Unity.Animations.SpringBones.Jobs {
 				var prevTipPos = childPos;
 
 				// Length Limit
-				var targetListIndex = lengthTargetList.Count;
+				var nestedLengthLimitProps = new NestedNativeSlice<LengthLimitProperties>();
 				var targetCount = springBone.lengthLimitTargets.Length;
-				//lengthsToLimitTargets = new float[targetCount];
-				for (int target = 0; target < targetCount; ++target) {
-					Transform targetRoot = springBone.lengthLimitTargets[target];
-					lengthTargetList.Add(targetRoot);
-					int targetIndex = -1;
-					if (targetRoot.TryGetComponent<SpringBone>(out var targetBone))
-						targetIndex = targetBone.index;
-					var lengthLimit = new LengthLimitProperties {
-						targetIndex = targetIndex,
-						////position = targetRoot.position,
-						target = Vector3.Magnitude(targetRoot.position - childPos),
-					};
-					lengthLimitList.Add(lengthLimit);
+				if (targetCount > 0) {
+					bool lengthAlloc = scheduler.lengthProperties.Alloc(targetCount, out this.lengthIndex, out this.lengthProperties);
+					if (!lengthAlloc) {
+						Debug.LogError("Spring Boneの距離制限上限が不足しています");
+						return false;
+					}
+					for (int m = 0; m < targetCount; ++m) {
+						var targetRoot = springBone.lengthLimitTargets[m];
+						int targetIndex = -1;
+						if (targetRoot.TryGetComponent<SpringBone>(out var targetBone))
+							targetIndex = targetBone.index;
+						this.lengthProperties[i] = new LengthLimitProperties {
+							targetIndex = targetIndex,
+							target = Vector3.Magnitude(targetRoot.position - childPos),
+						};
+						scheduler.lengthLimitTransforms[this.lengthIndex + i] = targetRoot;
+					}
+					nestedLengthLimitProps = new NestedNativeSlice<LengthLimitProperties>(this.lengthProperties);
+				}
+
+				// Colliders
+				var nestedCollisionNumbers = new NestedNativeSlice<int>();
+				var nSpringBoneColliders = springBone.jobColliders.Length;
+				if (nSpringBoneColliders > 0) {
+					bool colNumAlloc = scheduler.colNumbers.Alloc(nSpringBoneColliders, out var colNumberIndex, out var collisionNumbers);
+					if (!colNumAlloc) {
+						Debug.LogError("Spring Boneのコリジョンインデックス上限が不足しています");
+						return false;
+					}
+					for (int m = 0; m < nSpringBoneColliders; ++m)
+						collisionNumbers[m] = springBone.jobColliders[m].index;
+
+					nestedCollisionNumbers = new NestedNativeSlice<int>(collisionNumbers);
 				}
 
 				// ReadOnly
@@ -223,12 +255,6 @@ namespace Unity.Animations.SpringBones.Jobs {
 					}
 				}
 
-				// 各ボーン毎にコリジョンインデックスを分配
-				var nSpringBoneColliders = springBone.jobColliders.Length;
-				scheduler.colNumbers.Alloc(nSpringBoneColliders, out var colNumberIndex, out var collisionNumbers);
-				for (int m = 0; m < nSpringBoneColliders; ++m)
-					collisionNumbers[m] = springBone.jobColliders[m].index;
-				var nestedCollisionNumbers = new NestedNativeSlice<int>(collisionNumbers);
 				// ReadOnly
 				this.properties[i] = new SpringBoneProperties {
 					stiffnessForce = springBone.stiffnessForce,
@@ -255,7 +281,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 					pivotIndex = pivotIndex,
 					pivotLocalMatrix = pivotLocalMatrix,
 
-					lengthLimitIndex = targetListIndex,
+					lengthLimitProps = nestedLengthLimitProps,
 					
 					parentIndex = parentIndex,
 					localPosition = root.localPosition,
@@ -281,14 +307,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 					Object.DestroyImmediate(springBone);
 			}
 
-			// LengthLimit
-			// NOTE: Inspector拡張で静的にバッファ用意した方がベター
-			int nLengthLimits = lengthTargetList.Count;
-			scheduler.lengthProperties.Alloc(nLengthLimits, out this.lengthIndex, out this.lengthProperties);
-			for (int i = 0; i < nLengthLimits; ++i) {
-				scheduler.lengthLimitTransforms[this.lengthIndex + i] = lengthTargetList[i];
-				this.lengthProperties[i] = lengthLimitList[i];
-			}
+			return true;
 		}
 
 		/// <summary>

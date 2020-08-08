@@ -1,6 +1,3 @@
-//#define ASYNCHRONIZE // 1F内で計算と反映を行う
-
-using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Jobs.LowLevel.Unsafe;
@@ -22,10 +19,19 @@ namespace Unity.Animations.SpringBones.Jobs {
 			MAX,
 		}
 
+		[SerializeField]
+		private bool asynchronize = false;     // 非同期
+		[SerializeField]
+		private int innerloopBatchCount = 1;   // 分散処理バッチ数
+		[SerializeField]
 		private int registerCapacity = 32;     // 登録最大数
+		[SerializeField]
 		private int boneCapacity = 512;        // ボーン最大数
+		[SerializeField]
 		private int collisionCapacity = 256;   // コリジョン最大数
-		private int collisionNumberCapacity = 512;   // コリジョン最大数
+		[SerializeField]
+		private int collisionNumberCapacity = 1024; // コリジョンインデックス最大数
+		[SerializeField]
 		private int lengthLimitCapacity = 256; // 長さ制限最大数
 
 		private static SpringJobScheduler instance = null;
@@ -60,7 +66,23 @@ namespace Unity.Animations.SpringBones.Jobs {
 		private bool scheduled = false;
 
 
+		/// <summary>
+		/// 同期／非同期のスイッチ
+		/// </summary>
+		public bool enabledAsync { get { return this.asynchronize; } set { this.asynchronize = value; } }
+
+
+		void Awake() {
+			this.Initialize();
+		}
+
+		/// <summary>
+		/// 初期化
+		/// </summary>
 		private void Initialize() {
+			Debug.Assert(instance == null);
+			instance = this;
+
 			// NOTE: プロジェクト全体に影響するので一機能が設定すべきでない
 			//// Render Threadが有効な場合コンテキストスイッチを考慮してWorkerThreadを削減
 			//int workerCount = JobsUtility.JobWorkerMaximumCount;
@@ -71,6 +93,12 @@ namespace Unity.Animations.SpringBones.Jobs {
 			//}
 			//JobsUtility.JobWorkerCount = workerCount;
 
+			this.registerCapacity = Mathf.Max(1, this.registerCapacity);
+			this.boneCapacity = Mathf.Max(1, this.boneCapacity);
+			this.collisionCapacity = Mathf.Max(1, this.collisionCapacity);
+			this.collisionNumberCapacity = Mathf.Max(1, this.collisionNumberCapacity);
+			this.lengthLimitCapacity = Mathf.Max(1, this.lengthLimitCapacity);
+
 			this.properties = new NativeContainerPool<SpringBoneProperties>(this.boneCapacity, this.registerCapacity);
 			this.components = new NativeArray<SpringBoneComponents>(this.boneCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 			this.parentComponents = new NativeArray<Matrix4x4>(this.boneCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
@@ -78,7 +106,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			this.colProperties = new NativeContainerPool<SpringColliderProperties>(this.collisionCapacity, this.registerCapacity);
 			this.colComponents = new NativeArray<SpringColliderComponents>(this.collisionCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 			this.colNumbers = new NativeContainerPool<int>(this.collisionNumberCapacity, this.boneCapacity);
-			this.lengthProperties = new NativeContainerPool<LengthLimitProperties>(this.lengthLimitCapacity, this.registerCapacity);
+			this.lengthProperties = new NativeContainerPool<LengthLimitProperties>(this.lengthLimitCapacity, this.boneCapacity);
 			this.lengthComponents = new NativeArray<Vector3>(this.lengthLimitCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 
 			// NOTE: Worker Threadが２本ならParallel化を無効にしてコンテキストスイッチを考慮
@@ -144,9 +172,8 @@ namespace Unity.Animations.SpringBones.Jobs {
 			if (!this.scheduled)
 				return;
 
-#if ASYNCHRONIZE
-			this.handle.Complete();
-#endif
+			if (this.asynchronize)
+				this.handle.Complete();
 
 			int managerCount = this.managerTasks.count;
 			if (managerCount == 0) {
@@ -154,29 +181,29 @@ namespace Unity.Animations.SpringBones.Jobs {
 				return;
 			}
 
-#if ASYNCHRONIZE
-			// Spring結果反映
-			var applyHandle = this.applyJob.Schedule(this.boneTransforms);
+			if (this.asynchronize) {
+				// Spring結果反映
+				var applyHandle = this.applyJob.Schedule(this.boneTransforms);
 
-			this.preHandle[(int)TRANSFORM_JOB.PIVOT_BONE] = this.pivotJob.Schedule(this.bonePivotTransforms, applyHandle);
-			this.preHandle[(int)TRANSFORM_JOB.PARENT_BONE] = this.parentJob.Schedule(this.boneParentTransforms, applyHandle);
-			this.preHandle[(int)TRANSFORM_JOB.COLLIDER] = this.colliderJob.Schedule(this.colliderTransforms, applyHandle);
-			this.preHandle[(int)TRANSFORM_JOB.LENGTH_LIMIT] = this.lengthLimitJob.Schedule(this.lengthLimitTransforms, applyHandle);
-#else
-			// NOTE: 可能な限り並列化出来るようにする
-			this.preHandle[(int)TRANSFORM_JOB.PIVOT_BONE]   = this.pivotJob.Schedule(this.bonePivotTransforms);
-			this.preHandle[(int)TRANSFORM_JOB.PARENT_BONE]  = this.parentJob.Schedule(this.boneParentTransforms);
-			this.preHandle[(int)TRANSFORM_JOB.COLLIDER]     = this.colliderJob.Schedule(this.colliderTransforms);
-			this.preHandle[(int)TRANSFORM_JOB.LENGTH_LIMIT] = this.lengthLimitJob.Schedule(this.lengthLimitTransforms);
-#endif
+				this.preHandle[(int)TRANSFORM_JOB.PIVOT_BONE] = this.pivotJob.Schedule(this.bonePivotTransforms, applyHandle);
+				this.preHandle[(int)TRANSFORM_JOB.PARENT_BONE] = this.parentJob.Schedule(this.boneParentTransforms, applyHandle);
+				this.preHandle[(int)TRANSFORM_JOB.COLLIDER] = this.colliderJob.Schedule(this.colliderTransforms, applyHandle);
+				this.preHandle[(int)TRANSFORM_JOB.LENGTH_LIMIT] = this.lengthLimitJob.Schedule(this.lengthLimitTransforms, applyHandle);
+			} else {
+				// NOTE: 可能な限り並列化出来るようにする
+				this.preHandle[(int)TRANSFORM_JOB.PIVOT_BONE] = this.pivotJob.Schedule(this.bonePivotTransforms);
+				this.preHandle[(int)TRANSFORM_JOB.PARENT_BONE] = this.parentJob.Schedule(this.boneParentTransforms);
+				this.preHandle[(int)TRANSFORM_JOB.COLLIDER] = this.colliderJob.Schedule(this.colliderTransforms);
+				this.preHandle[(int)TRANSFORM_JOB.LENGTH_LIMIT] = this.lengthLimitJob.Schedule(this.lengthLimitTransforms);
+			}
+
 			var combineHandle = JobHandle.CombineDependencies(this.preHandle);
-			this.handle = this.springJob.Schedule(managerCount, 1, combineHandle);
+			this.handle = this.springJob.Schedule(managerCount, this.innerloopBatchCount, combineHandle);
 
-#if ASYNCHRONIZE
-			JobHandle.ScheduleBatchedJobs();
-#else
-			this.applyJob.Schedule(this.boneTransforms, this.handle).Complete();
-#endif
+			if (this.asynchronize)
+				JobHandle.ScheduleBatchedJobs();
+			else
+				this.applyJob.Schedule(this.boneTransforms, this.handle).Complete();
 		}
 
 		public static bool CollectActiveJob(SpringJobManager manager, int no) {
@@ -193,29 +220,29 @@ namespace Unity.Animations.SpringBones.Jobs {
 		/// 接続
 		/// </summary>
 		public static bool Entry(SpringJobManager register) {
-			// NOTE: 暗黙で準備するのは製品にはあまり良いと言えない
 			if (instance == null) {
-				GameObject go = new GameObject("SpringBoneJobScheduler");
-				go.hideFlags |= HideFlags.HideInHierarchy;
-				instance = go.AddComponent<SpringJobScheduler>();
-				instance.Initialize();
+				GameObject go = new GameObject("SpringJobScheduler(Don't destroy)");
+				var scheduler = go.AddComponent<SpringJobScheduler>();
+				scheduler.Initialize();
 				Object.DontDestroyOnLoad(go);
 			}
 
 			if (instance.managerTasks.count > instance.registerCapacity) {
-				Debug.LogError("Max JobHandle Count Error : " + instance.registerCapacity);
+				Debug.LogError("Spring Managerの登録上限が不足しています : " + instance.registerCapacity);
 				return false;
 			}
 
 			// NativeArray参照の為に必要
 			instance.handle.Complete();
 
-			instance.scheduled = true;
-			register.Initialize(instance);
-			instance.managerTasks.Attach(register);
-			instance.managerTasks.Order(CollectActiveJob);
+			if (register.Initialize(instance)) {
+				instance.scheduled = true;
+				instance.managerTasks.Attach(register);
+				instance.managerTasks.Order(CollectActiveJob);
+				return true;
+			}
 
-			return true;
+			return false;
 		}
 
 		/// <summary>

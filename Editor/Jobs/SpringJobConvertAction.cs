@@ -75,7 +75,14 @@ namespace Unity.Animations.SpringBones.Jobs {
 				prop.arraySize = jobColliderList.Count;
 				for (int i = 0; i < jobColliderList.Count; ++i)
 					prop.GetArrayElementAtIndex(i).objectReferenceValue = jobColliderList[i];
-				so.ApplyModifiedProperties();
+				so.SetIsDifferentCacheDirty(); // シーンセーブせずにCtrl+Dで複製した場合の対処
+				so.ApplyModifiedProperties();  // SerializedFieldの反映
+
+				var scheduler = Object.FindObjectOfType<SpringJobScheduler>();
+				if (scheduler == null) {
+					var go = new GameObject("SpringJobScheduler(Don't destroy)");
+					go.AddComponent<SpringJobScheduler>();
+				}
 			}
 			var sphere = activeObject.GetComponentsInChildren<SpringSphereCollider>(true);
 			foreach (var s in sphere)

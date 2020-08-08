@@ -103,9 +103,12 @@ namespace FUtility {
         /// 接続
         /// </summary>
         /// <param name="item">追加するデータ</param>
-        public void Attach(T item) {
+        public bool Attach(T item) {
             Debug.Assert(item != null, "アタッチエラー");
-            Debug.Assert(this.freeCount > 0, "キャパシティオーバー");
+            if (this.freeCount == 0) {
+                Debug.LogWarning("Taskのキャパシティオーバーの為キャンセル");
+                return false;
+            }
     
             Task<T> task = this.activeTask[this.freeCount - 1];
             task.item = item;
@@ -120,6 +123,7 @@ namespace FUtility {
     
             --this.freeCount;
             ++this.actCount;
+            return true;
         }
 
         /// <summary>
