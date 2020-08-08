@@ -42,7 +42,6 @@ namespace Unity.Animations.SpringBones.Jobs {
 		public Matrix4x4 pivotLocalMatrix;
 
 		public NestedNativeSlice<int> collisionNumbers;
-
 		public NestedNativeSlice<LengthLimitProperties> lengthLimitProps;
 	}
 

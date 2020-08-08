@@ -1,6 +1,5 @@
 using Unity.Collections;
 using Unity.Jobs;
-using Unity.Jobs.LowLevel.Unsafe;
 using UnityEngine;
 using UnityEngine.Jobs;
 using FUtility;
@@ -20,19 +19,19 @@ namespace Unity.Animations.SpringBones.Jobs {
 		}
 
 		[SerializeField]
-		private bool asynchronize = false;     // 非同期
+		private bool asynchronize = false;   // 非同期
 		[SerializeField]
-		private int innerloopBatchCount = 1;   // 分散処理バッチ数
+		private int innerloopBatchCount = 1; // 分散処理バッチ数
 		[SerializeField]
-		private int registerCapacity = 32;     // 登録最大数
+		private int registerCapacity = 32;   // 登録最大数
 		[SerializeField]
-		private int boneCapacity = 512;        // ボーン最大数
+		private int boneCapacity = 512;      // ボーン最大数
 		[SerializeField]
-		private int collisionCapacity = 256;   // コリジョン最大数
+		private int colliderCapacity = 256;  // コライダー最大数
 		[SerializeField]
-		private int collisionNumberCapacity = 1024; // コリジョンインデックス最大数
+		private int registedColliderCapacity = 1024;    // コリジョンインデックス最大数
 		[SerializeField]
-		private int lengthLimitCapacity = 256; // 長さ制限最大数
+		private int registerdLengthLimitCapacity = 256; // 長さ制限最大数
 
 		private static SpringJobScheduler instance = null;
 
@@ -80,11 +79,14 @@ namespace Unity.Animations.SpringBones.Jobs {
 		/// 初期化
 		/// </summary>
 		private void Initialize() {
-			Debug.Assert(instance == null);
+			if (instance != null)
+				return;
 			instance = this;
+			Object.DontDestroyOnLoad(this.gameObject);
 
-			// NOTE: プロジェクト全体に影響するので一機能が設定すべきでない
-			//// Render Threadが有効な場合コンテキストスイッチを考慮してWorkerThreadを削減
+			// NOTE: プロジェクト全体に影響するので機能単位で設定変更すべきでない
+			//// Render Threadが有効な場合コンテキストスイッチを考慮してWorkerThreadを削減した方がよいのでは？
+			//// Editorで設定すると再設定しないと戻らないので割と面倒 
 			//int workerCount = JobsUtility.JobWorkerMaximumCount;
 			//if (workerCount > 1) {
 			//	if (SystemInfo.renderingThreadingMode == UnityEngine.Rendering.RenderingThreadingMode.MultiThreaded ||
@@ -93,41 +95,35 @@ namespace Unity.Animations.SpringBones.Jobs {
 			//}
 			//JobsUtility.JobWorkerCount = workerCount;
 
+			// 0以下の補正
 			this.registerCapacity = Mathf.Max(1, this.registerCapacity);
 			this.boneCapacity = Mathf.Max(1, this.boneCapacity);
-			this.collisionCapacity = Mathf.Max(1, this.collisionCapacity);
-			this.collisionNumberCapacity = Mathf.Max(1, this.collisionNumberCapacity);
-			this.lengthLimitCapacity = Mathf.Max(1, this.lengthLimitCapacity);
+			this.colliderCapacity = Mathf.Max(1, this.colliderCapacity);
+			this.registedColliderCapacity = Mathf.Max(1, this.registedColliderCapacity);
+			this.registerdLengthLimitCapacity = Mathf.Max(1, this.registerdLengthLimitCapacity);
 
+			// NativeContainer作成
 			this.properties = new NativeContainerPool<SpringBoneProperties>(this.boneCapacity, this.registerCapacity);
 			this.components = new NativeArray<SpringBoneComponents>(this.boneCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 			this.parentComponents = new NativeArray<Matrix4x4>(this.boneCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 			this.pivotComponents = new NativeArray<Matrix4x4>(this.boneCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-			this.colProperties = new NativeContainerPool<SpringColliderProperties>(this.collisionCapacity, this.registerCapacity);
-			this.colComponents = new NativeArray<SpringColliderComponents>(this.collisionCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-			this.colNumbers = new NativeContainerPool<int>(this.collisionNumberCapacity, this.boneCapacity);
-			this.lengthProperties = new NativeContainerPool<LengthLimitProperties>(this.lengthLimitCapacity, this.boneCapacity);
-			this.lengthComponents = new NativeArray<Vector3>(this.lengthLimitCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+			this.colProperties = new NativeContainerPool<SpringColliderProperties>(this.colliderCapacity, this.registerCapacity);
+			this.colComponents = new NativeArray<SpringColliderComponents>(this.colliderCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+			this.colNumbers = new NativeContainerPool<int>(this.registedColliderCapacity, this.boneCapacity);
+			this.lengthProperties = new NativeContainerPool<LengthLimitProperties>(this.registerdLengthLimitCapacity, this.boneCapacity);
+			this.lengthComponents = new NativeArray<Vector3>(this.registerdLengthLimitCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 
-			// NOTE: Worker Threadが２本ならParallel化を無効にしてコンテキストスイッチを考慮
-			int desiredJobCount = -1;
-			if (JobsUtility.JobWorkerCount < 3)
-				desiredJobCount = 1;
-#if UNITY_IOS || UNITY_ANDROID
-			// NOTE: Mobileはbig.LITTLEなのでParallelに期待出来ない
-			desiredJobCount = 1;
-#endif
 			this.boneTransforms = new TransformAccessArray(new Transform[this.boneCapacity], 1);
-			this.boneParentTransforms = new TransformAccessArray(new Transform[this.boneCapacity], desiredJobCount);
-			this.bonePivotTransforms = new TransformAccessArray(new Transform[this.boneCapacity], desiredJobCount);
-			this.colliderTransforms = new TransformAccessArray(new Transform[this.collisionCapacity], desiredJobCount);
-			this.lengthLimitTransforms = new TransformAccessArray(new Transform[this.lengthLimitCapacity], desiredJobCount);
+			this.boneParentTransforms = new TransformAccessArray(new Transform[this.boneCapacity]);
+			this.bonePivotTransforms = new TransformAccessArray(new Transform[this.boneCapacity]);
+			this.colliderTransforms = new TransformAccessArray(new Transform[this.colliderCapacity]);
+			this.lengthLimitTransforms = new TransformAccessArray(new Transform[this.registerdLengthLimitCapacity]);
 
 			this.applyJob.components = this.components;
 			this.parentJob.components = this.parentComponents;
 			this.pivotJob.components = this.pivotComponents;
 			this.colliderJob.components = this.colComponents;
-			this.lengthLimitJob.properties = this.lengthProperties.nativeArray;
+			//this.lengthLimitJob.properties = this.lengthProperties.nativeArray; // NOTE: 必要なら
 			this.lengthLimitJob.components = this.lengthComponents;
 
 			this.managerTasks = new TaskSystem<SpringJobManager>(this.registerCapacity);
@@ -211,7 +207,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			return true;
 		}
 		public static int DetachFineshedJob(SpringJobManager manager) {
-			if (manager.isActive)
+			if (manager.initialized)
 				return 0;
 			return -1;
 		}
@@ -220,11 +216,16 @@ namespace Unity.Animations.SpringBones.Jobs {
 		/// 接続
 		/// </summary>
 		public static bool Entry(SpringJobManager register) {
+			// NOTE: Scheduler未作成なら生成してあげる
 			if (instance == null) {
-				GameObject go = new GameObject("SpringJobScheduler(Don't destroy)");
-				var scheduler = go.AddComponent<SpringJobScheduler>();
+				var scheduler = Object.FindObjectOfType<SpringJobScheduler>();
+				if (scheduler == null) {
+					GameObject go = new GameObject("SpringJobScheduler(Don't destroy)");
+					scheduler = go.AddComponent<SpringJobScheduler>();
+
+					Debug.Log("Create SpringJobScheduler using default parameter");
+				}
 				scheduler.Initialize();
-				Object.DontDestroyOnLoad(go);
 			}
 
 			if (instance.managerTasks.count > instance.registerCapacity) {

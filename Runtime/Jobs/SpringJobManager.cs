@@ -5,8 +5,12 @@ using System.Linq;
 using FUtility;
 
 namespace Unity.Animations.SpringBones.Jobs {
+	/// <summary>
+	/// Job版SpringManager
+	/// </summary>
 	public class SpringJobManager : MonoBehaviour {
-        [Header("Optional Settings")] 
+		#region MEMBER
+		[Header("Optional Settings")] 
 		public bool optimizeTransform = false;
         [Header("Debug")] 
         public bool allowInspectorEdit = false;
@@ -25,20 +29,28 @@ namespace Unity.Animations.SpringBones.Jobs {
 		[Header("Ground Collision")] public bool collideWithGround = true;
 		public float groundHeight = 0f;
 
-		// NOTE: Unity-Chan SpringBoneV2の設定をそのまま継続させる
 		private SpringBone[] springBones;
 		private SpringJobChild job;
-
-		// ジョブ渡しバッファ
-		private int boneIndex, colIndex, colNumberIndex, lengthIndex;
+		private int boneIndex, colIndex, lengthIndex;
 		private NativeSlice<SpringBoneProperties> properties;
 		private NativeSlice<SpringColliderProperties> colProperties;
 		private NativeSlice<LengthLimitProperties> lengthProperties;
 
-		private bool initialized = false;
-		public bool isActive => this.initialized;
+		// 初期化キャッシュ
+		private SpringBoneProperties[] jobProperties;
+		[SerializeField]
+		private SpringColliderProperties[] jobComponents;
+		[SerializeField]
+		private SpringColliderProperties[] jobColProperties;
+        #endregion
 
-		private static int GetObjectDepth(Transform inObject) {
+
+        #region PROPERTY
+        public bool initialized { get; private set; }
+        #endregion
+
+
+        private static int GetObjectDepth(Transform inObject) {
 			var depth = 0;
 			var currentObject = inObject;
 			while (currentObject != null) {
@@ -49,22 +61,15 @@ namespace Unity.Animations.SpringBones.Jobs {
 		}
 		// Find SpringBones in children and assign them in depth order.
 		// Note that the original list will be overwritten.
-		public void FindSpringBones(bool includeInactive = false) {
+		public SpringBone[] FindSpringBones(bool includeInactive = false) {
 			var unsortedSpringBones = GetComponentsInChildren<SpringBone>(includeInactive);
 			var boneDepthList = unsortedSpringBones
 				.Select(bone => new { bone, depth = GetObjectDepth(bone.transform) })
 				.ToList();
 			boneDepthList.Sort((a, b) => a.depth.CompareTo(b.depth));
-			springBones = boneDepthList.Select(item => item.bone).ToArray();
+			return boneDepthList.Select(item => item.bone).ToArray();
 		}
-		//public void FindCollider(ref SpringCollider[] colliders) {
-		//	var unsortedSpringBones = colliders;
-		//	var boneDepthList = unsortedSpringBones
-		//		.Select(bone => new { bone, depth = GetObjectDepth(bone.transform) })
-		//		.ToList();
-		//	boneDepthList.Sort((a, b) => a.depth.CompareTo(b.depth));
-		//	colliders = boneDepthList.Select(item => item.bone).ToArray();
-		//}
+
 		/// <summary>
 		/// 初期化
 		/// </summary>
@@ -74,7 +79,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 
 			this.initialized = true;
 
-			this.FindSpringBones(true);
+			this.springBones = this.FindSpringBones();
 
 			var nSpringBones = this.springBones.Length;
 			var propAlloc = scheduler.properties.Alloc(nSpringBones, out this.boneIndex, out this.properties);
@@ -106,6 +111,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 				this.colProperties[i] = comp;
 				scheduler.colliderTransforms[this.colIndex + i] = tr;
 
+				// 本体についているコライダーの削除
 				if (this.optimizeTransform)
 					Object.DestroyImmediate(colliders[i]);
 			}
@@ -221,7 +227,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 					nestedLengthLimitProps = new NestedNativeSlice<LengthLimitProperties>(this.lengthProperties);
 				}
 
-				// Colliders
+				// Colliders Index
 				var nestedCollisionNumbers = new NestedNativeSlice<int>();
 				var nSpringBoneColliders = springBone.jobColliders.Length;
 				if (nSpringBoneColliders > 0) {
@@ -275,17 +281,15 @@ namespace Unity.Animations.SpringBones.Jobs {
 					radius = springBone.radius,
 					boneAxis = boneAxis,
 					springLength = springLength,
-					//collisionMask = springBone.collisionMask,
-					collisionNumbers = nestedCollisionNumbers,
+					localPosition = root.localPosition,
+					initialLocalRotation = root.localRotation,
+					parentIndex = parentIndex,
 
 					pivotIndex = pivotIndex,
 					pivotLocalMatrix = pivotLocalMatrix,
 
+					collisionNumbers = nestedCollisionNumbers,
 					lengthLimitProps = nestedLengthLimitProps,
-					
-					parentIndex = parentIndex,
-					localPosition = root.localPosition,
-					initialLocalRotation = root.localRotation,
 				};
 
 				// Read/Write (initialize param)
