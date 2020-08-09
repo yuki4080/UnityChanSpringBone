@@ -1,14 +1,12 @@
-﻿using System;
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace Unity.Animations.SpringBones.Jobs
 {
     // Authoring component
     public class SpringCollider : MonoBehaviour {
-        [System.NonSerialized]
-        public int index;
+        [SerializeField, HideInInspector]
+        internal int index = 0;          // number of SpringBone
 
-        //public int layer;
         public ColliderType type;
         public float radius;
         public float width;
@@ -123,6 +121,11 @@ namespace Unity.Animations.SpringBones.Jobs
             var worldNormal = transform.TransformDirection(localNormal).normalized;
             var worldContactPoint = transform.TransformPoint(localContactPoint);
             m_colliderDebugger.RecordCollision(worldContactPoint, worldNormal, worldMoverRadius, collisionStatus);
+        }
+        // extend function for Job
+        private void OnValidate() {
+            // NOTE: Job化したら編集不可
+            this.gameObject.hideFlags |= HideFlags.NotEditable;
         }
 #endif
     }

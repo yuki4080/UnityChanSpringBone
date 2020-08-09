@@ -8,11 +8,13 @@ namespace Unity.Animations.SpringBones
     {
         //********************************************************
         // extend param for Job
-        [System.NonSerialized]
-		public int index = 0;          // number of SpringBone
+        [SerializeField, HideInInspector]
+		internal int index = 0;          // number of SpringBone
 
         [SerializeField]
-        internal Jobs.SpringCollider[] jobColliders;
+        internal bool enabledJobSystem = false; // NOTE: ちょっとダサいがJob化しましたよフラグ
+        [SerializeField]
+        internal Jobs.SpringCollider[] jobColliders = null;
         //********************************************************
 
         public enum CollisionStatus
@@ -520,6 +522,17 @@ namespace Unity.Animations.SpringBones
                 }
             }
         }
+
+        //********************************************************
+        // extend function for Job
+        private void OnValidate() {
+            // NOTE: Job化したら編集不可にする
+            if (this.enabledJobSystem)
+                this.gameObject.hideFlags |= HideFlags.NotEditable;
+            else
+                this.gameObject.hideFlags &= ~HideFlags.NotEditable;
+        }
+        //********************************************************
 #endif
     }
 }

@@ -11,8 +11,8 @@ using UnityEngine;
 using Unity.IL2CPP.CompilerServices;
 
 namespace FUtility {
-    // true:継続, false:終了
-    public delegate bool OrderHandler<T>(T obj, int no);
+
+    public delegate bool OrderHandler<T>(T obj, int no); // true:ALIVE, false:DEAD
     public delegate int MatchHandler<T>(T obj); // 1:HIT, 0:MISS, -1:BREAK
 
     // タスク

@@ -44,7 +44,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 		internal NativeArray<SpringColliderComponents> colComponents;
 		internal NativeContainerPool<int> colNumbers;
 		internal NativeContainerPool<LengthLimitProperties> lengthProperties;
-		internal NativeArray<Vector3> lengthComponents;
+		internal NativeContainerPool<Vector3> lengthComponents;
 
 		internal TransformAccessArray boneTransforms;
 		internal TransformAccessArray boneParentTransforms;
@@ -111,7 +111,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			this.colComponents = new NativeArray<SpringColliderComponents>(this.colliderCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 			this.colNumbers = new NativeContainerPool<int>(this.registedColliderCapacity, this.boneCapacity);
 			this.lengthProperties = new NativeContainerPool<LengthLimitProperties>(this.registerdLengthLimitCapacity, this.boneCapacity);
-			this.lengthComponents = new NativeArray<Vector3>(this.registerdLengthLimitCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+			this.lengthComponents = new NativeContainerPool<Vector3>(this.registerdLengthLimitCapacity, this.registerCapacity);
 
 			this.boneTransforms = new TransformAccessArray(new Transform[this.boneCapacity], 1);
 			this.boneParentTransforms = new TransformAccessArray(new Transform[this.boneCapacity]);
@@ -124,7 +124,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			this.pivotJob.components = this.pivotComponents;
 			this.colliderJob.components = this.colComponents;
 			//this.lengthLimitJob.properties = this.lengthProperties.nativeArray; // NOTE: 必要なら
-			this.lengthLimitJob.components = this.lengthComponents;
+			this.lengthLimitJob.components = this.lengthComponents.nativeArray;
 
 			this.managerTasks = new TaskSystem<SpringJobManager>(this.registerCapacity);
 			this.managers = new NativeArray<SpringJobChild>(this.registerCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
@@ -139,6 +139,8 @@ namespace Unity.Animations.SpringBones.Jobs {
 
 			// 同期しないと当然怒られる
 			this.handle.Complete();
+
+			this.managerTasks.Detach(AllFinishJob);
 
 			this.managerTasks.Clear();
 
@@ -202,16 +204,6 @@ namespace Unity.Animations.SpringBones.Jobs {
 				this.applyJob.Schedule(this.boneTransforms, this.handle).Complete();
 		}
 
-		public static bool CollectActiveJob(SpringJobManager manager, int no) {
-			instance.springJob.jobManagers[no] = manager.GetJob();
-			return true;
-		}
-		public static int DetachFineshedJob(SpringJobManager manager) {
-			if (manager.initialized)
-				return 0;
-			return -1;
-		}
-
 		/// <summary>
 		/// 接続
 		/// </summary>
@@ -259,5 +251,21 @@ namespace Unity.Animations.SpringBones.Jobs {
 			scheduler.Final(instance);
 			return instance.managerTasks.Detach(DetachFineshedJob); ;
 		}
-	}
+
+		#region MANAGER TASK
+		public static bool CollectActiveJob(SpringJobManager manager, int no) {
+			instance.springJob.jobManagers[no] = manager.GetJob();
+			return true;
+		}
+		public static int DetachFineshedJob(SpringJobManager manager) {
+			if (manager.initialized)
+				return 0;
+			return -1; // Detachかつ中断
+		}
+		public static int AllFinishJob(SpringJobManager manager) {
+			manager.Final(instance);
+			return 1; // Detachかつ継続
+		}
+        #endregion
+    }
 }

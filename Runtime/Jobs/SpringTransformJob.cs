@@ -39,7 +39,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 	/// </summary>
 	[Burst.BurstCompile]
 	public struct SpringPivotJob : IJobParallelForTransform {
-		//[ReadOnly] public NativeSlice<SpringJobChild> jobArray;
+		//[ReadOnly] public NativeArray<SpringJobChild> jobArray;
 		//[ReadOnly] public NativeArray<SpringBoneProperties> properties;
 
 		[WriteOnly] public NativeArray<Matrix4x4> components;
@@ -89,14 +89,9 @@ namespace Unity.Animations.SpringBones.Jobs {
 	/// </summary>
 	[Burst.BurstCompile]
 	public struct SpringLengthLimitJob : IJobParallelForTransform {
-		//[ReadOnly] public NativeSlice<LengthLimitProperties> properties;
-
 		[WriteOnly] public NativeArray<Vector3> components;
 
 		void IJobParallelForTransform.Execute(int index, TransformAccess transform) {
-			// NOTE: Bone毎に設定されて重複するからキックした方が速い…？
-			//if (this.properties[index].targetIndex >= 0)
-			//	return;
 			this.components[index] = transform.position;
 		}
 	}

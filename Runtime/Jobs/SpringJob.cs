@@ -41,8 +41,8 @@ namespace Unity.Animations.SpringBones.Jobs {
 		public int pivotIndex;  // PivotがSpringBoneだった場合のIndex（違う場合 -1）
 		public Matrix4x4 pivotLocalMatrix;
 
-		public NestedNativeSlice<int> collisionNumbers;
-		public NestedNativeSlice<LengthLimitProperties> lengthLimitProps;
+		public NestedNativeArray<int> collisionNumbers;
+		public NestedNativeArray<LengthLimitProperties> lengthLimitProps;
 	}
 
 	/// <summary>
@@ -71,7 +71,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 	/// </summary>
 	[Burst.BurstCompile]
 	public struct SpringJob : IJobParallelFor {
-		[ReadOnly] public NativeSlice<SpringJobChild> jobManagers;
+		[ReadOnly] public NativeArray<SpringJobChild> jobManagers;
 
 		/// <summary>
 		/// ジョブ実行
@@ -87,36 +87,33 @@ namespace Unity.Animations.SpringBones.Jobs {
 	public partial struct SpringJobChild {
 		public float deltaTime;
 		public SpringBoneSettings settings;
-		public NestedNativeSlice<SpringBoneProperties> nestedProperties;
-		public NestedNativeSlice<SpringBoneComponents> nestedComponents;
-		public NestedNativeSlice<Matrix4x4> nestedParentComponents;
-		public NestedNativeSlice<Matrix4x4> nestedPivotComponents;
-		public NestedNativeSlice<SpringColliderProperties> nestedColliderProperties;
-		public NestedNativeSlice<SpringColliderComponents> nestedColliderComponents;
-		public NestedNativeSlice<Vector3> nestedLengthLimitComponents;
+		public NestedNativeArray<SpringBoneProperties> nestedProperties;
+		public NestedNativeArray<SpringBoneComponents> nestedComponents;
+		public NestedNativeArray<Matrix4x4> nestedParentComponents;
+		public NestedNativeArray<Matrix4x4> nestedPivotComponents;
+		public NestedNativeArray<SpringColliderProperties> nestedColliderProperties;
+		public NestedNativeArray<SpringColliderComponents> nestedColliderComponents;
+		public NestedNativeArray<Vector3> nestedLengthLimitComponents;
 
 		/// <summary>
 		/// ジョブ実行
 		/// </summary>
 		public void Execute() {
-			var properties = this.nestedProperties.Convert();
-			var components = this.nestedComponents.Convert();
-			var parentComponents = this.nestedParentComponents.Convert();
-			var length = properties.Length;
+			var length = this.nestedProperties.Length;
 
 			for (int i = 0; i < length; ++i) {
-				var bone = components[i];
-				var prop = properties[i];
+				var bone = this.nestedComponents[i];
+				var prop = this.nestedProperties[i];
 
 				Quaternion parentRot;
 				if (prop.parentIndex >= 0) {
 					// 親ノードがSpringBoneなら演算結果を反映する
-					var parentBone = components[prop.parentIndex];
+					var parentBone = this.nestedComponents[prop.parentIndex];
 					parentRot = parentBone.rotation;
 					bone.position = parentBone.position + parentBone.rotation * prop.localPosition;
 					bone.rotation = parentRot * bone.localRotation;
 				} else {
-					var parentMat = parentComponents[i];
+					var parentMat = this.nestedParentComponents[i];
 					parentRot = parentMat.rotation;
 					bone.position = parentMat.MultiplyPoint3x4(prop.localPosition);
 					//bone.position = new Vector3(parentMat.m03, parentMat.m13, parentMat.m23) + parentRot * prop.localPosition;
@@ -125,13 +122,13 @@ namespace Unity.Animations.SpringBones.Jobs {
 
 				var baseWorldRotation = parentRot * prop.initialLocalRotation;
 				this.UpdateSpring(ref bone, in prop, in baseWorldRotation);
-				this.ResolveCollisionsAndConstraints(ref bone, in prop, i, components);
+				this.ResolveCollisionsAndConstraints(ref bone, in prop, i, this.nestedComponents);
 				this.UpdateRotation(ref bone, in prop, in baseWorldRotation);
 				
 				// NOTE: 子の為に更新する
 				bone.rotation = parentRot * bone.localRotation;
 
-				components[i] = bone;
+				this.nestedComponents[i] = bone;
 			}
 		}
 
@@ -165,7 +162,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			bone.currentTipPosition = headPosition + prop.springLength * headToTail;
 		}
 
-		private void ResolveCollisionsAndConstraints(ref SpringBoneComponents bone, in SpringBoneProperties prop, int index, NativeSlice<SpringBoneComponents> boneComponents) {
+		private void ResolveCollisionsAndConstraints(ref SpringBoneComponents bone, in SpringBoneProperties prop, int index, NestedNativeArray<SpringBoneComponents> boneComponents) {
 			if (this.settings.enableLengthLimits)
 				this.ApplyLengthLimits(ref bone, in prop, boneComponents);
 
@@ -183,30 +180,27 @@ namespace Unity.Animations.SpringBones.Jobs {
 					var pivotBone = boneComponents[prop.pivotIndex];
 					pivotLocalToWorld = Matrix4x4.TRS(pivotBone.position, pivotBone.rotation, Vector3.one) * prop.pivotLocalMatrix;
 				} else {
-					var pivotComponents = this.nestedPivotComponents.Convert();
-					pivotLocalToWorld = pivotComponents[index];
+					pivotLocalToWorld = this.nestedPivotComponents[index];
 				}
 				this.ApplyAngleLimits(ref bone, in prop, in pivotLocalToWorld);
 			}
 		}
 
 		// Returns the new tip position
-		private void ApplyLengthLimits(ref SpringBoneComponents bone, in SpringBoneProperties prop, NativeSlice<SpringBoneComponents> boneComponents) {
-			var properties = prop.lengthLimitProps.Convert();
-			var length = properties.Length;
+		private void ApplyLengthLimits(ref SpringBoneComponents bone, in SpringBoneProperties prop, NestedNativeArray<SpringBoneComponents> boneComponents) {
+			var length = prop.lengthLimitProps.Length;
 			if (length == 0)
 				return;
 
 			const float SpringConstant = 0.5f;
 			var accelerationMultiplier = SpringConstant * this.deltaTime * this.deltaTime;
 			var movement = Vector3.zero;
-			var components = this.nestedLengthLimitComponents.Convert();
 			for (int i = 0; i < length; ++i) {
-				var limit = properties[i];
+				var limit = prop.lengthLimitProps[i];
 				var lengthToLimitTarget = limit.target;
 				// TODO: pivotの時と同様にLengthLimitノードがSpringBoneの下についていた場合は反映が遅れてる、そのようなケースがある？
 				var limitPosition = (limit.targetIndex >= 0) ? boneComponents[limit.targetIndex].position
-															 : components[i];
+															 : this.nestedLengthLimitComponents[i];
 				var currentToTarget = bone.currentTipPosition - limitPosition;
 				var currentDistanceSquared = Vector3.SqrMagnitude(currentToTarget);
 
@@ -271,14 +265,11 @@ namespace Unity.Animations.SpringBones.Jobs {
 
 			var hadCollision = false;
 
-			var properties = this.nestedColliderProperties.Convert();
-			var components = this.nestedColliderComponents.Convert();
-			var numbers = prop.collisionNumbers.Convert();
-			var length = numbers.Length;
+			var length = prop.collisionNumbers.Length;
 			for (var i = 0; i < length; ++i) {
-				var num = numbers[i];
-				var collider = properties[num];
-				var colliderTransform = components[num];
+				var num = prop.collisionNumbers[i];
+				var collider = this.nestedColliderProperties[num];
+				var colliderTransform = this.nestedColliderComponents[num];
 
 				switch (collider.type) {
 					case ColliderType.Capsule:

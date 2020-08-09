@@ -22,7 +22,7 @@ namespace FUtility {
     }
 
     /// <summary>
-    /// NativeArrayをNativeSliceでブロック化
+    /// NativeArrayをNativeContainerでブロック化
     /// </summary>
     public class NativeContainerPool<T> where T : struct {
         private NativeArray<T> array;
@@ -60,31 +60,37 @@ namespace FUtility {
         }
 
         public void Dispose() {
+            Debug.Assert(this.usedPool.count == 0, "Leak in NativeContainerPool");
+            Debug.Assert(this.freePool.count == 1, "Unknown Error in NativeContainerPool");
+
             this.array.Dispose();
             this.freePool.Clear();
             this.usedPool.Clear();
         }
 
         /// <summary>
-        /// NativeSliceの取得
+        /// NestedArrayの取得
         /// </summary>
         /// <param name="size">要求サイズ</param>
         /// <returns>確保成功</returns>
-        public unsafe bool Alloc(int size, out int index, out NativeSlice<T> slice) {
+        public unsafe bool AllocNestedArray(int size, out int index, out NestedNativeArray<T> nestedArray) {
             if (size == 0) {
                 index = 0;
-                slice = default;
+                nestedArray = default;
                 return false;
             }
 
             NativeBlock block;
             this.needSize = size;
             if (this.freePool.Pickup(this.getFreeBlockHandler, out block)) {
-                var memory = new NativeSlice<T>(this.array, block.startIndex, size);
+                nestedArray = new NestedNativeArray<T>(this.array, block.startIndex, size);
                 index = block.startIndex;
-                slice = memory;
 
-                var newBlock = new NativeBlock { startIndex = block.startIndex, size = size, ptr = memory.GetUnsafeReadOnlyPtr() };
+                var newBlock = new NativeBlock {
+                    startIndex = block.startIndex,
+                    size = size,
+                    ptr = nestedArray.GetUnsafeReadOnlyPtr()
+                };
                 this.usedPool.Attach(newBlock);
 
                 block.startIndex += size;
@@ -94,7 +100,42 @@ namespace FUtility {
                 return true;
             }
             index = -1;
-            slice = default;
+            nestedArray = default;
+            return false;
+        }
+        /// <summary>
+        /// NativeArray(Sub)の取得
+        /// </summary>
+        /// <param name="size">要求サイズ</param>
+        /// <returns>確保成功</returns>
+        public unsafe bool AllocSubArray(int size, out int index, out NativeArray<T> subArray) {
+            if (size == 0) {
+                index = 0;
+                subArray = default;
+                return false;
+            }
+
+            NativeBlock block;
+            this.needSize = size;
+            if (this.freePool.Pickup(this.getFreeBlockHandler, out block)) {
+                subArray = this.array.GetSubArray(block.startIndex, size);
+                index = block.startIndex;
+
+                var newBlock = new NativeBlock {
+                    startIndex = block.startIndex,
+                    size = size,
+                    ptr = NativeArrayUnsafeUtility.GetUnsafeBufferPointerWithoutChecks(subArray)
+                };
+                this.usedPool.Attach(newBlock);
+
+                block.startIndex += size;
+                block.size -= size;
+                this.freePool.Attach(block);
+
+                return true;
+            }
+            index = -1;
+            subArray = default;
             return false;
         }
         private int needSize = 0;
@@ -105,14 +146,27 @@ namespace FUtility {
         }
 
         /// <summary>
-        /// NativeSliceの返却
+        /// NestedArrayの返却
         /// </summary>
-        /// <param name="slice">確保したNativeSlice</param>
-        public unsafe void Free(NativeSlice<T> slice) {
-            if (slice.Stride == 0 || slice.Length == 0)
-                return;
-
-            this.freeAddress = slice.GetUnsafeReadOnlyPtr<T>();
+        /// <param name="slice">確保したNestedArray</param>
+        public unsafe bool Free(NestedNativeArray<T> nestedArray) {
+            if (nestedArray.Length == 0)
+                return false;
+            var ptr = nestedArray.GetUnsafeReadOnlyPtr();
+            return this.Free(ptr);
+        }
+        /// <summary>
+        /// NativeArray(Sub)の返却
+        /// </summary>
+        /// <param name="slice">確保したNativeArray</param>
+        public unsafe bool Free(NativeArray<T> array) {
+            if (array.Length == 0)
+                return false;
+            var ptr = NativeArrayUnsafeUtility.GetUnsafeBufferPointerWithoutChecks(array);
+            return this.Free(ptr);
+        }
+        private unsafe bool Free(void* ptr) {
+            this.freeAddress = ptr;
             // 使用中のブロックから回収
             if (this.usedPool.Pickup(this.getusedBlockHandler, out this.connectBlock)) {
                 NativeBlock block;
@@ -127,7 +181,10 @@ namespace FUtility {
                 }
                 this.connectBlock.ptr = null; // safe delete
                 this.freePool.Attach(this.connectBlock);
+
+                return true;
             }
+            return false;
         }
         private unsafe void* freeAddress = null;
         private unsafe int GetUsedBlock(NativeBlock block) {
