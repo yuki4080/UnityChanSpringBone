@@ -8,6 +8,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 	/// <summary>
 	/// SpringBoneのNativeContainer管理とJob発行
 	/// </summary>
+	[DefaultExecutionOrder(-200)] // NOTE: LateUpdateの頭で呼んであげることで非同期の並列処理をする算段
 	public class SpringJobScheduler : MonoBehaviour {
 		private enum TRANSFORM_JOB {
 			PARENT_BONE,
@@ -21,7 +22,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 		[SerializeField]
 		private bool asynchronize = false;    // 非同期
 		[SerializeField]
-		private int maxWorkerThreadCount = 1; // 最大使用WorkerThread数
+		private int maxWorkerThreadCount = 0; // 最大使用WorkerThread数（0で無制限）
 		[SerializeField]
 		private int registerCapacity = 32;    // 登録最大数
 		[SerializeField]
@@ -31,7 +32,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 		[SerializeField]
 		private int registedColliderCapacity = 2048;    // コリジョンインデックス最大数
 		[SerializeField]
-		private int registerdLengthLimitCapacity = 256; // 長さ制限最大数
+		private int registeredLengthLimitCapacity = 256; // 長さ制限最大数
 
 		private static SpringJobScheduler instance = null;
 
@@ -71,7 +72,11 @@ namespace Unity.Animations.SpringBones.Jobs {
 		public bool enabledAsync { get { return this.asynchronize; } set { this.asynchronize = value; } }
 
 
+		/// <summary>
+		/// 生成
+		/// </summary>
 		void Awake() {
+			// NOTE: 事前にScene内に用意していた場合の対応
 			this.Initialize();
 		}
 
@@ -85,7 +90,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			Object.DontDestroyOnLoad(this.gameObject);
 
 			// NOTE: プロジェクト全体に影響するので機能単位で設定変更すべきでない
-			//// Render Threadが有効な場合コンテキストスイッチを考慮してWorkerThreadを削減した方がよいのでは？
+			//// Render Threadが有効な場合コンテキストスイッチを考慮してWorkerThread分を削減した方がよいのでは？
 			//// Editorで設定すると再設定しないと戻らないので割と面倒 
 			//int workerCount = JobsUtility.JobWorkerMaximumCount;
 			//if (workerCount > 1) {
@@ -100,7 +105,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			this.boneCapacity = Mathf.Max(1, this.boneCapacity);
 			this.colliderCapacity = Mathf.Max(1, this.colliderCapacity);
 			this.registedColliderCapacity = Mathf.Max(1, this.registedColliderCapacity);
-			this.registerdLengthLimitCapacity = Mathf.Max(1, this.registerdLengthLimitCapacity);
+			this.registeredLengthLimitCapacity = Mathf.Max(1, this.registeredLengthLimitCapacity);
 
 			// NativeContainer作成
 			this.properties = new NativeContainerPool<SpringBoneProperties>(this.boneCapacity, this.registerCapacity);
@@ -110,14 +115,14 @@ namespace Unity.Animations.SpringBones.Jobs {
 			this.colProperties = new NativeContainerPool<SpringColliderProperties>(this.colliderCapacity, this.registerCapacity);
 			this.colComponents = new NativeArray<SpringColliderComponents>(this.colliderCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 			this.colNumbers = new NativeContainerPool<int>(this.registedColliderCapacity, this.boneCapacity);
-			this.lengthProperties = new NativeContainerPool<LengthLimitProperties>(this.registerdLengthLimitCapacity, this.boneCapacity);
-			this.lengthLimitTargets = new NativeContainerPool<Vector3>(this.registerdLengthLimitCapacity, this.registerCapacity);
+			this.lengthProperties = new NativeContainerPool<LengthLimitProperties>(this.registeredLengthLimitCapacity, this.boneCapacity);
+			this.lengthLimitTargets = new NativeContainerPool<Vector3>(this.registeredLengthLimitCapacity, this.registerCapacity);
 
 			this.boneTransforms = new TransformAccessArray(new Transform[this.boneCapacity], 1);
 			this.boneParentTransforms = new TransformAccessArray(new Transform[this.boneCapacity]);
 			this.bonePivotTransforms = new TransformAccessArray(new Transform[this.boneCapacity]);
 			this.colliderTransforms = new TransformAccessArray(new Transform[this.colliderCapacity]);
-			this.lengthLimitTransforms = new TransformAccessArray(new Transform[this.registerdLengthLimitCapacity]);
+			this.lengthLimitTransforms = new TransformAccessArray(new Transform[this.registeredLengthLimitCapacity]);
 
 			this.applyJob.components = this.components;
 			this.parentJob.properties = this.properties.nativeArray;
@@ -133,13 +138,20 @@ namespace Unity.Animations.SpringBones.Jobs {
 			this.preHandle = new NativeArray<JobHandle>((int)TRANSFORM_JOB.MAX, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 
 			this.springJob.jobManagers = this.managers;
+
+			// 稼働しているWorkerThread数より多いの禁止（挙動としての意味はないが一応警告）
+			if (this.maxWorkerThreadCount > System.Environment.ProcessorCount) {
+				int workerThreadCount = System.Environment.ProcessorCount;
+				Debug.Log($"SpringJobScheduler clamped maxWorkerThreadCount {this.maxWorkerThreadCount} to {workerThreadCount}");
+				this.maxWorkerThreadCount = workerThreadCount;
+			}
 		}
 
 		void OnDestroy() {
 			if (instance == null)
 				return;
 
-			// 同期しないと当然怒られる
+			// NOTE: SpringJobの完了待ちしてからNativeContainerを解放しないと当然怒られる、非同期設定の場合に必要
 			this.handle.Complete();
 
 			this.managerTasks.Detach(AllFinishJob);
@@ -198,7 +210,10 @@ namespace Unity.Animations.SpringBones.Jobs {
 			}
 
 			var combineHandle = JobHandle.CombineDependencies(this.preHandle);
-			var innerloopBatchCount = managerCount <= this.maxWorkerThreadCount ? 0 : Mathf.CeilToInt((float)managerCount / this.maxWorkerThreadCount);
+			var innerloopBatchCount = 0;
+			if (this.maxWorkerThreadCount > 0 && managerCount > this.maxWorkerThreadCount) {
+				innerloopBatchCount = Mathf.CeilToInt((float)managerCount / this.maxWorkerThreadCount);
+			}
 			this.handle = this.springJob.Schedule(managerCount, innerloopBatchCount, combineHandle);
 
 			if (this.asynchronize)
@@ -228,7 +243,8 @@ namespace Unity.Animations.SpringBones.Jobs {
 				return false;
 			}
 
-			// NativeArray参照の為に必要
+			// NOTE: NativeArray参照するので非同期対応の場合に完了待ちが必要
+			//       Update内で呼ばれる想定なのでLateUpdate内からEntryされるとドリフトする
 			instance.handle.Complete();
 
 			if (register.Initialize(instance)) {

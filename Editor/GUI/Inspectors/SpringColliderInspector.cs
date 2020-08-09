@@ -1,12 +1,8 @@
-﻿using System.Collections.Generic;
-using System.Linq;
-using UnityEditor;
+﻿using UnityEditor;
 using UnityEngine;
 
 namespace Unity.Animations.SpringBones.Jobs
 {
-    using Inspector;
-
     // https://docs.unity3d.com/ScriptReference/Editor.html
 
     [CustomEditor(typeof(SpringCollider))]
@@ -15,14 +11,12 @@ namespace Unity.Animations.SpringBones.Jobs
     {
         private static class Styles
         {
-            public static readonly GUIContent layerLabel = EditorGUIUtility.TrTextContent("Spring Collision Layer", "Collision Layer");
             public static readonly GUIContent shapeLabel = EditorGUIUtility.TrTextContent("Collider Shape", "Collider Shape of this Collider");
             public static readonly GUIContent radiusLabel = EditorGUIUtility.TrTextContent("Radius", "Radius of this Collider");
             public static readonly GUIContent heightLabel = EditorGUIUtility.TrTextContent("Height", "Height of this Collider");
             public static readonly GUIContent widthLabel = EditorGUIUtility.TrTextContent("Width", "Width of this Collider");
         }
 
-        private SerializedProperty m_propLayer;
         private SerializedProperty m_propType;
         private SerializedProperty m_propRadius;
         private SerializedProperty m_propWidth;
@@ -32,11 +26,6 @@ namespace Unity.Animations.SpringBones.Jobs
         public override void OnInspectorGUI()
         {
             serializedObject.Update();
-            //var newSelectedIndex = EditorGUILayout.Popup(Styles.layerLabel, m_propLayer.intValue, m_layerSettings.Layers);
-            //if (m_propLayer.intValue != newSelectedIndex)
-            //{
-            //    m_propLayer.intValue = newSelectedIndex;
-            //}
 
             EditorGUILayout.PropertyField(m_propType, Styles.shapeLabel);
 
@@ -73,9 +62,6 @@ namespace Unity.Animations.SpringBones.Jobs
 
         private void OnEnable()
         {
-            //m_layerSettings = SpringBoneLayerSettings.GetOrCreateSettings();
-            
-            m_propLayer = serializedObject.FindProperty("layer");
             m_propType = serializedObject.FindProperty("type");
             m_propRadius = serializedObject.FindProperty("radius");
             m_propWidth = serializedObject.FindProperty("width");

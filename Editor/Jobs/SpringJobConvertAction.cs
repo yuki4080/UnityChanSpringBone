@@ -10,6 +10,9 @@ namespace Unity.Animations.SpringBones.Jobs {
 			if (EditorApplication.isPlaying || Application.isPlaying && EditorApplication.isCompiling)
 				return;
 
+			if (EditorUtility.DisplayDialog("Attention Please !", "Job化したSpring Boneは元に戻せません。\nこのまま実行してよろしいですか？", "いいえ", "はい"))
+				return;
+
 			var activeObject = Selection.activeGameObject;
 
 			var bones = activeObject.GetComponentsInChildren<SpringBone>(true);

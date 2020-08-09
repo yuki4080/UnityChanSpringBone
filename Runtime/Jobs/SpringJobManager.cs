@@ -50,6 +50,9 @@ namespace Unity.Animations.SpringBones.Jobs {
 
 
 		#region PROPERTY
+		/// <summary>
+		/// 初期化済か
+		/// </summary>
 		public bool initialized { get; private set; }
         #endregion
 
@@ -64,7 +67,6 @@ namespace Unity.Animations.SpringBones.Jobs {
 			return depth;
 		}
 		// Find SpringBones in children and assign them in depth order.
-		// Note that the original list will be overwritten.
 		public SpringBone[] FindSpringBones(bool includeInactive = false) {
 			var unsortedSpringBones = GetComponentsInChildren<SpringBone>(includeInactive);
 			var boneDepthList = unsortedSpringBones
@@ -74,6 +76,9 @@ namespace Unity.Animations.SpringBones.Jobs {
 			return boneDepthList.Select(item => item.bone).ToArray();
 		}
 
+		/// <summary>
+		/// コンバート時に行えるデータ作成はSerializedFiledにぶち込んでランタイムの初期化を削減する
+		/// </summary>
 		public void CachedJobParam() {
 			this.sortedBones = this.FindSpringBones();
 			var nSpringBones = this.sortedBones.Length;
@@ -197,13 +202,6 @@ namespace Unity.Animations.SpringBones.Jobs {
 			this.jobLengthProperties = jobLengthPropertiesList.ToArray();
 		}
 
-		public static int Compare(SpringBone a, SpringBone b) {
-			if (a.index < b.index)
-				return -1;
-			if (a.index > b.index)
-				return 1;
-			return 0;
-		}
 		/// <summary>
 		/// 初期化
 		/// </summary>
@@ -310,7 +308,6 @@ namespace Unity.Animations.SpringBones.Jobs {
 			} else {
 				this.lengthLimitTargets = default;
 			}
-
 
 			this.job.deltaTime = (this.simulationFrameRate > 0) ? (1f / this.simulationFrameRate) : 1f / 60f;
 			this.job.settings = new SpringBoneSettings() {
