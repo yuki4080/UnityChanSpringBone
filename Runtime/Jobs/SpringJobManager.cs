@@ -372,6 +372,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 		/// </summary>
 		/// <returns></returns>
 		public SpringJobElement GetElement() {
+			this.job.isPaused = this.isPaused;
 			this.job.deltaTime = (this.simulationFrameRate > 0) ? (1f / this.simulationFrameRate) : Time.deltaTime;
 			this.job.dynamicRatio = this.dynamicRatio;
 			this.job.gravity = this.gravity;

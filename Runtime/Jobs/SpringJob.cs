@@ -71,6 +71,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 	/// </summary>
 	public struct SpringJobElement {
 		// JobManager settings
+		public bool isPaused;
 		public float deltaTime;
 		public float dynamicRatio;
 		public Vector3 gravity;
@@ -94,8 +95,10 @@ namespace Unity.Animations.SpringBones.Jobs {
 		/// ジョブ実行
 		/// </summary>
 		public void Execute() {
-			var length = this.nestedProperties.Length;
+			if (this.isPaused)
+				return;
 
+			var length = this.nestedProperties.Length;
 			for (int i = 0; i < length; ++i) {
 				var bone = this.nestedComponents[i];
 				var prop = this.nestedProperties[i];
