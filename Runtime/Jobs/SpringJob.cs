@@ -5,21 +5,6 @@ using FUtility;
 
 namespace Unity.Animations.SpringBones.Jobs {
 	/// <summary>
-	/// SpringBoneManager設定
-	/// </summary>
-	public struct SpringBoneSettings {
-		public float dynamicRatio;
-		public Vector3 gravity;
-		public float bounce;
-		public float friction;
-		public bool enableAngleLimits;
-		public bool enableCollision;
-		public bool enableLengthLimits;
-		public bool collideWithGround;
-		public float groundHeight;
-	}
-
-	/// <summary>
 	/// ボーン毎の設定値（ReadOnly in Job）
 	/// </summary>
 	[System.Serializable]
@@ -71,7 +56,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 	/// </summary>
 	[Burst.BurstCompile]
 	public struct SpringJob : IJobParallelFor {
-		[ReadOnly] public NativeArray<SpringJobChild> jobManagers;
+		[ReadOnly] public NativeArray<SpringJobElement> jobManagers;
 
 		/// <summary>
 		/// ジョブ実行
@@ -84,9 +69,19 @@ namespace Unity.Animations.SpringBones.Jobs {
 	/// <summary>
 	/// SpringManager単位の計算
 	/// </summary>
-	public partial struct SpringJobChild {
+	public struct SpringJobElement {
+		// JobManager settings
 		public float deltaTime;
-		public SpringBoneSettings settings;
+		public float dynamicRatio;
+		public Vector3 gravity;
+		public float bounce;
+		public float friction;
+		public bool enableAngleLimits;
+		public bool enableCollision;
+		public bool enableLengthLimits;
+		public bool collideWithGround;
+		public float groundHeight;
+
 		public NestedNativeArray<SpringBoneProperties> nestedProperties;
 		public NestedNativeArray<SpringBoneComponents> nestedComponents;
 		public NestedNativeArray<Matrix4x4> nestedParentComponents;
@@ -137,7 +132,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 
 			// Hooke's law: force to push us to equilibrium
 			var force = prop.stiffnessForce * (orientedInitialPosition - bone.currentTipPosition);
-			force += prop.springForce + settings.gravity; // TODO: externalForce
+			force += prop.springForce + this.gravity; // TODO: externalForce
 			var sqrDt = this.deltaTime * this.deltaTime;
 			force *= 0.5f * sqrDt;
 
@@ -163,18 +158,18 @@ namespace Unity.Animations.SpringBones.Jobs {
 		}
 
 		private void ResolveCollisionsAndConstraints(ref SpringBoneComponents bone, in SpringBoneProperties prop, int index, NestedNativeArray<SpringBoneComponents> boneComponents) {
-			if (this.settings.enableLengthLimits)
+			if (this.enableLengthLimits)
 				this.ApplyLengthLimits(ref bone, in prop, boneComponents);
 
 			var hadCollision = false;
 
-			if (this.settings.collideWithGround)
+			if (this.collideWithGround)
 				hadCollision = this.ResolveGroundCollision(ref bone, in prop);
 
-			if (this.settings.enableCollision && !hadCollision)
+			if (this.enableCollision && !hadCollision)
 				this.ResolveCollisions(ref bone, in prop);
 
-			if (this.settings.enableAngleLimits) {
+			if (this.enableAngleLimits) {
 				Matrix4x4 pivotLocalToWorld;
 				if (prop.pivotIndex >= 0) {
 					var pivotBone = boneComponents[prop.pivotIndex];
@@ -214,7 +209,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 		}
 
 		private bool ResolveGroundCollision(ref SpringBoneComponents bone, in SpringBoneProperties prop) {
-			var groundHeight = this.settings.groundHeight;
+			var groundHeight = this.groundHeight;
 			// Todo: this assumes a flat ground parallel to the xz plane
 			var worldHeadPosition = bone.position;
 			var worldTailPosition = bone.currentTipPosition;
@@ -300,7 +295,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 				var upwardComponent = Vector3.Dot(reflectedVector, hitNormal) * hitNormal;
 				var lateralComponent = reflectedVector - upwardComponent;
 
-				var bounceVelocity = this.settings.bounce * upwardComponent + (1f - this.settings.friction) * lateralComponent;
+				var bounceVelocity = this.bounce * upwardComponent + (1f - this.friction) * lateralComponent;
 				const float BounceThreshold = 0.0001f;
 				if (Vector3.SqrMagnitude(bounceVelocity) > BounceThreshold) {
 					var distanceTraveled = Vector3.Magnitude(bone.currentTipPosition - bone.previousTipPosition);
@@ -355,7 +350,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			}
 
 			var actualLocalRotation = ComputeLocalRotation(in baseWorldRotation, ref bone, in prop);
-			bone.localRotation = Quaternion.Lerp(bone.localRotation, actualLocalRotation, this.settings.dynamicRatio);
+			bone.localRotation = Quaternion.Lerp(bone.localRotation, actualLocalRotation, this.dynamicRatio);
 		}
 
 		private Quaternion ComputeLocalRotation(in Quaternion baseWorldRotation, ref SpringBoneComponents bone, in SpringBoneProperties prop) {

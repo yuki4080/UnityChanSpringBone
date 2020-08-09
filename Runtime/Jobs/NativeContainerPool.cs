@@ -13,7 +13,7 @@ using UnityEngine;
 
 namespace FUtility {
     /// <summary>
-    /// NativeArray内のブロックパラメータ
+    /// Memory block in NativeArray
     /// </summary>
     internal unsafe struct NativeBlock {
         public int startIndex;
@@ -22,7 +22,7 @@ namespace FUtility {
     }
 
     /// <summary>
-    /// NativeArrayをNativeContainerでブロック化
+    /// Like memory pool for NativeArray
     /// </summary>
     public class NativeContainerPool<T> where T : struct {
         private NativeArray<T> array;
@@ -37,10 +37,10 @@ namespace FUtility {
         public NativeArray<T> nativeArray => this.array;
 
         /// <summary>
-        /// NativeArrayのPool
+        /// Constructor
         /// </summary>
-        /// <param name="arraySize">全体Arrayサイズ</param>
-        /// <param name="blockCapacity">確保ブロック最大数</param>
+        /// <param name="arraySize">NativeArray size</param>
+        /// <param name="blockCapacity">max block for pool</param>
         public NativeContainerPool(int arraySize, int blockCapacity) {
             if (arraySize < 0 || blockCapacity <= 0) {
                 Debug.LogError("登録数が無効です");
@@ -59,6 +59,9 @@ namespace FUtility {
             this.freePool.Attach(block);
         }
 
+        /// <summary>
+        /// Dispose native memories
+        /// </summary>
         public void Dispose() {
             Debug.Assert(this.usedPool.count == 0, "Leak in NativeContainerPool");
             Debug.Assert(this.freePool.count == 1, "Unknown Error in NativeContainerPool");
@@ -69,10 +72,10 @@ namespace FUtility {
         }
 
         /// <summary>
-        /// NestedArrayの取得
+        /// Get native sub array as NestedNativeArray
         /// </summary>
-        /// <param name="size">要求サイズ</param>
-        /// <returns>確保成功</returns>
+        /// <param name="size">array size</param>
+        /// <returns>success</returns>
         public unsafe bool AllocNestedArray(int size, out int index, out NestedNativeArray<T> nestedArray) {
             if (size == 0) {
                 index = 0;
@@ -104,10 +107,10 @@ namespace FUtility {
             return false;
         }
         /// <summary>
-        /// NativeArray(Sub)の取得
+        /// Get native sub array
         /// </summary>
-        /// <param name="size">要求サイズ</param>
-        /// <returns>確保成功</returns>
+        /// <param name="size">array size</param>
+        /// <returns>success</returns>
         public unsafe bool AllocSubArray(int size, out int index, out NativeArray<T> subArray) {
             if (size == 0) {
                 index = 0;
@@ -146,19 +149,20 @@ namespace FUtility {
         }
 
         /// <summary>
-        /// NestedArrayの返却
+        /// Release allocated NestedNativeArray
         /// </summary>
-        /// <param name="slice">確保したNestedArray</param>
+        /// <param name="nestedArray">allocated array</param>
         public unsafe bool Free(NestedNativeArray<T> nestedArray) {
             if (nestedArray.Length == 0)
                 return false;
             var ptr = nestedArray.GetUnsafeReadOnlyPtr();
             return this.Free(ptr);
         }
+
         /// <summary>
-        /// NativeArray(Sub)の返却
+        /// Release allocated native sub array
         /// </summary>
-        /// <param name="slice">確保したNativeArray</param>
+        /// <param name="nestedArray">allocated array</param>
         public unsafe bool Free(NativeArray<T> array) {
             if (array.Length == 0)
                 return false;

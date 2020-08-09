@@ -26,7 +26,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 		[SerializeField]
 		private int registerCapacity = 32;    // 登録最大数
 		[SerializeField]
-		private int boneCapacity = 512;       // ボーン最大数
+		private int boneCapacity = 1024;       // ボーン最大数
 		[SerializeField]
 		private int colliderCapacity = 256;   // コライダー最大数
 		[SerializeField]
@@ -54,7 +54,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 		internal TransformAccessArray lengthLimitTransforms;
 
 		private TaskSystem<SpringJobManager> managerTasks;
-		private NativeArray<SpringJobChild> managers;
+		private NativeArray<SpringJobElement> managers;
 		private NativeArray<JobHandle> preHandle;
 		private SpringBoneApplyJob applyJob;
 		private SpringParentJob parentJob;
@@ -84,8 +84,12 @@ namespace Unity.Animations.SpringBones.Jobs {
 		/// 初期化
 		/// </summary>
 		private void Initialize() {
-			if (instance != null)
+			if (instance != null) {
+				// 重複不可
+				Debug.LogWarning("Do not use multiple SpringJobScheduler.");
+				Object.DestroyImmediate(this.gameObject);
 				return;
+			}
 			instance = this;
 			Object.DontDestroyOnLoad(this.gameObject);
 
@@ -134,7 +138,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			this.lengthTargetJob.components = this.lengthLimitTargets.nativeArray;
 
 			this.managerTasks = new TaskSystem<SpringJobManager>(this.registerCapacity);
-			this.managers = new NativeArray<SpringJobChild>(this.registerCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+			this.managers = new NativeArray<SpringJobElement>(this.registerCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 			this.preHandle = new NativeArray<JobHandle>((int)TRANSFORM_JOB.MAX, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 
 			this.springJob.jobManagers = this.managers;
@@ -193,6 +197,11 @@ namespace Unity.Animations.SpringBones.Jobs {
 				return;
 			}
 
+#if UNITY_EDITOR
+			// InspectorからのManager設定変更対応
+			this.managerTasks.Order(CollectSpringJobElements);
+#endif
+
 			if (this.asynchronize) {
 				// Spring結果反映
 				var applyHandle = this.applyJob.Schedule(this.boneTransforms);
@@ -250,7 +259,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			if (register.Initialize(instance)) {
 				instance.scheduled = true;
 				instance.managerTasks.Attach(register);
-				instance.managerTasks.Order(CollectActiveJob);
+				instance.managerTasks.Order(CollectSpringJobElements);
 				return true;
 			}
 
@@ -272,8 +281,8 @@ namespace Unity.Animations.SpringBones.Jobs {
 		}
 
 		#region MANAGER TASK
-		public static bool CollectActiveJob(SpringJobManager manager, int no) {
-			instance.springJob.jobManagers[no] = manager.GetJob();
+		public static bool CollectSpringJobElements(SpringJobManager manager, int no) {
+			instance.springJob.jobManagers[no] = manager.GetElement();
 			return true;
 		}
 		public static int DetachFineshedJob(SpringJobManager manager) {

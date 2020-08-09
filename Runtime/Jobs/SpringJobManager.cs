@@ -26,7 +26,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 		[Header("Ground Collision")] public bool collideWithGround = true;
 		public float groundHeight = 0f;
 
-		private SpringJobChild job;
+		private SpringJobElement job;
 		private int boneIndex, colIndex, lengthIndex;
 		private NestedNativeArray<SpringBoneProperties> properties;
 		private NestedNativeArray<SpringColliderProperties> colProperties;
@@ -310,17 +310,15 @@ namespace Unity.Animations.SpringBones.Jobs {
 			}
 
 			this.job.deltaTime = (this.simulationFrameRate > 0) ? (1f / this.simulationFrameRate) : 1f / 60f;
-			this.job.settings = new SpringBoneSettings() {
-				dynamicRatio = this.dynamicRatio,
-				gravity = this.gravity,
-				bounce = this.bounce,
-				friction = this.friction,
-				enableAngleLimits = this.enableAngleLimits,
-				enableCollision = this.enableCollision,
-				enableLengthLimits = this.enableLengthLimits,
-				collideWithGround = this.collideWithGround,
-				groundHeight = this.groundHeight,
-			};
+			this.job.dynamicRatio = this.dynamicRatio;
+			this.job.gravity = this.gravity;
+			this.job.bounce = this.bounce;
+			this.job.friction = this.friction;
+			this.job.enableAngleLimits = this.enableAngleLimits;
+			this.job.enableCollision = this.enableCollision;
+			this.job.enableLengthLimits = this.enableLengthLimits;
+			this.job.collideWithGround = this.collideWithGround;
+			this.job.groundHeight = this.groundHeight;
 
 			this.job.nestedProperties = this.properties;
 			this.job.nestedComponents = new NestedNativeArray<SpringBoneComponents>(scheduler.components, this.boneIndex, this.properties.Length);
@@ -373,11 +371,18 @@ namespace Unity.Animations.SpringBones.Jobs {
 		/// Jobデータの取得
 		/// </summary>
 		/// <returns></returns>
-		public SpringJobChild GetJob() {
-			if (this.isPaused)
-				this.job.deltaTime = 0f;
-			else
-				this.job.deltaTime = (this.simulationFrameRate > 0) ? (1f / this.simulationFrameRate) : Time.deltaTime;
+		public SpringJobElement GetElement() {
+			this.job.deltaTime = (this.simulationFrameRate > 0) ? (1f / this.simulationFrameRate) : Time.deltaTime;
+			this.job.dynamicRatio = this.dynamicRatio;
+			this.job.gravity = this.gravity;
+			this.job.bounce = this.bounce;
+			this.job.friction = this.friction;
+			this.job.enableAngleLimits = this.enableAngleLimits;
+			this.job.enableCollision = this.enableCollision;
+			this.job.enableLengthLimits = this.enableLengthLimits;
+			this.job.collideWithGround = this.collideWithGround;
+			this.job.groundHeight = this.groundHeight;
+
 			return this.job;
 		}
 
