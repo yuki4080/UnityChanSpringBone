@@ -1,9 +1,9 @@
 {
   "name": "com.unity.springbone",
   "displayName": "Unity Chan Spring Bone Job",
-  "version": "1.0.0-preview",
+  "version": "1.1.0-preview",
   "unity": "2019.4",
-  "description": "Sping Bone System for lightweight secondary animations.",
+  "description": "Sping Bone System for lightweight secondary animations.\nAnd supported C# JobSystem & Burst Compiler. (experimental)",
   "keywords": [
     "animation"
   ],

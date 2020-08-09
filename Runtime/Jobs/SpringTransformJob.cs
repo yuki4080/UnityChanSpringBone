@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.Jobs;
 using Unity.Collections;
+using Unity.Mathematics;
 
 namespace Unity.Animations.SpringBones.Jobs {
 	/// <summary>
@@ -21,16 +22,18 @@ namespace Unity.Animations.SpringBones.Jobs {
 	/// </summary>
 	[Burst.BurstCompile]
 	public struct SpringParentJob : IJobParallelForTransform {
-		//[ReadOnly] public NativeArray<SpringBoneProperties> properties;
+		[ReadOnly] public NativeArray<SpringBoneProperties> properties;
 
 		[WriteOnly] public NativeArray<Matrix4x4> components;
 
 		void IJobParallelForTransform.Execute(int index, TransformAccess transform) {
-			// NOTE: 余計な判定を入れない方が速い模様
-			//SpringBoneProperties prop = this.properties[index];
-			//if (prop.parentIndex < 0) {
-				this.components[index] = transform.localToWorldMatrix;
-			//}
+			// NOTE: SpringBoneに依存する場合はtransform不要なのでキックした方が速い
+			SpringBoneProperties prop = this.properties[index];
+			if (prop.parentIndex < 0) {
+				// NOTE: mathを使った方が速いが根っこのSpringBoneしか来ないので目立つ効果はない
+				this.components[index] = new float4x4(transform.rotation, transform.position);
+				//this.components[index] = transform.localToWorldMatrix;
+			}
 		}
 	}
 
@@ -39,33 +42,19 @@ namespace Unity.Animations.SpringBones.Jobs {
 	/// </summary>
 	[Burst.BurstCompile]
 	public struct SpringPivotJob : IJobParallelForTransform {
-		//[ReadOnly] public NativeArray<SpringJobChild> jobArray;
-		//[ReadOnly] public NativeArray<SpringBoneProperties> properties;
+		[ReadOnly] public NativeArray<SpringBoneProperties> properties;
 
 		[WriteOnly] public NativeArray<Matrix4x4> components;
 
 		void IJobParallelForTransform.Execute(int index, TransformAccess transform) {
-			// NOTE: 余計な判定を入れない方が速い模様
-			//int jobIndex = -1;
-			//for (int i = 0; i < this.jobArray.Length; ++i) {
-			//	if (this.jobArray[i].boneIndex <= index && index < this.jobArray[i].boneIndex + this.jobArray[i].boneCount) {
-			//		jobIndex = i;
-			//		break;
-			//	}
-			//}
-			//if (jobIndex < 0) {
-			//	// NOTE: DeactiveなTransformは送られてこない、かつDeactive時にnullを入れているので正常動作としてはここに来ない
-			//	Debug.LogWarning("Skip Transform!");
-			//	return;
-			//}
+			// NOTE: SpringBoneに依存する場合はtransform不要なのでキックした方が速い
+			SpringBoneProperties prop = this.properties[index];
+			if (prop.pivotIndex < 0 && (prop.yAngleLimits.active || prop.zAngleLimits.active)) {
+				// NOTE: mathを使った方が速いので、pivotがSpringBoneに依存していない場合が多いなら割と効果がある
+				this.components[index] = new float4x4(transform.rotation, transform.position);
+				//this.components[index] = transform.localToWorldMatrix;
+			}
 
-			//if (this.jobArray[jobIndex].settings.enableAngleLimits) {
-			//	SpringBoneProperties prop = this.properties[index];
-			//	if (prop.pivotIndex < 0 && (prop.yAngleLimits.active || prop.zAngleLimits.active)) {
-			//		this.components[index] = transform.localToWorldMatrix;
-			//	}
-			//}
-			this.components[index] = transform.localToWorldMatrix;
 		}
 	}
 
@@ -77,10 +66,17 @@ namespace Unity.Animations.SpringBones.Jobs {
 		[WriteOnly] public NativeArray<SpringColliderComponents> components;
 
 		void IJobParallelForTransform.Execute(int index, TransformAccess transform) {
+			// NOTE: mathで行列演算した方が速い
+			float3 pos = transform.position;
+			quaternion rot = transform.rotation;
 			this.components[index] = new SpringColliderComponents {
-				localToWorldMatrix = transform.localToWorldMatrix,
-				worldToLocalMatrix = transform.worldToLocalMatrix,
+				localToWorldMatrix = new float4x4(rot, pos),
+				worldToLocalMatrix = math.mul(new float4x4(math.inverse(rot), float3.zero), new float4x4(float3x3.identity, -pos)),
 			};
+			//this.components[index] = new SpringColliderComponents {
+			//	localToWorldMatrix = transform.localToWorldMatrix,
+			//	worldToLocalMatrix = transform.worldToLocalMatrix,
+			//};
 		}
 	}
 
@@ -88,7 +84,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 	/// 距離制限座標の更新
 	/// </summary>
 	[Burst.BurstCompile]
-	public struct SpringLengthLimitJob : IJobParallelForTransform {
+	public struct SpringLengthTargetJob : IJobParallelForTransform {
 		[WriteOnly] public NativeArray<Vector3> components;
 
 		void IJobParallelForTransform.Execute(int index, TransformAccess transform) {

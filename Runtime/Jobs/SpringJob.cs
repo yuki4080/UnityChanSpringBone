@@ -93,7 +93,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 		public NestedNativeArray<Matrix4x4> nestedPivotComponents;
 		public NestedNativeArray<SpringColliderProperties> nestedColliderProperties;
 		public NestedNativeArray<SpringColliderComponents> nestedColliderComponents;
-		public NestedNativeArray<Vector3> nestedLengthLimitComponents;
+		public NestedNativeArray<Vector3> nestedLengthLimitTargets;
 
 		/// <summary>
 		/// ジョブ実行
@@ -200,7 +200,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 				var lengthToLimitTarget = limit.target;
 				// TODO: pivotの時と同様にLengthLimitノードがSpringBoneの下についていた場合は反映が遅れてる、そのようなケースがある？
 				var limitPosition = (limit.targetIndex >= 0) ? boneComponents[limit.targetIndex].position
-															 : this.nestedLengthLimitComponents[i];
+															 : this.nestedLengthLimitTargets[i];
 				var currentToTarget = bone.currentTipPosition - limitPosition;
 				var currentDistanceSquared = Vector3.SqrMagnitude(currentToTarget);
 

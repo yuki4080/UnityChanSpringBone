@@ -30,7 +30,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 		private int boneIndex, colIndex, lengthIndex;
 		private NestedNativeArray<SpringBoneProperties> properties;
 		private NestedNativeArray<SpringColliderProperties> colProperties;
-		private NestedNativeArray<Vector3> lengthComponents;
+		private NestedNativeArray<Vector3> lengthLimitTargets;
 
 		// NOTE: ランタイム時に行わなくても良いボーンの初期化データは全部用意しておく
 		//       その分Job化したら再編集は不可とする（サポートするのは今回パス）
@@ -213,12 +213,9 @@ namespace Unity.Animations.SpringBones.Jobs {
 
 			this.initialized = true;
 
-			Debug.LogWarning("Initialize : " + this.name);
+			Debug.Log("SpringJobManager Initialize : " + this.name);
 
 			// Bones
-			////var springBones = this.FindSpringBones();
-			//var springBones = this.GetComponentsInChildren<SpringBone>(true);
-			//System.Array.Sort(springBones, Compare);
 			var springBones = this.sortedBones;
 
 			var nSpringBones = springBones.Length;
@@ -302,16 +299,16 @@ namespace Unity.Animations.SpringBones.Jobs {
 			// LengthLimits
 			var nLengthLimits = allLengthLimitList.Count;
 			if (nLengthLimits > 0) {
-				var lenghCompAlloc = scheduler.lengthComponents.AllocNestedArray(nLengthLimits, out this.lengthIndex, out this.lengthComponents);
+				var lenghCompAlloc = scheduler.lengthLimitTargets.AllocNestedArray(nLengthLimits, out this.lengthIndex, out this.lengthLimitTargets);
 				if (!lenghCompAlloc) {
 					Debug.LogError("不明なエラー");
 					this.Final(scheduler);
 					return false;
 				}
 				for (int i = 0; i < allLengthLimitList.Count; ++i)
-					this.lengthComponents[i] = allLengthLimitList[i].position;
+					this.lengthLimitTargets[i] = allLengthLimitList[i].position;
 			} else {
-				this.lengthComponents = default;
+				this.lengthLimitTargets = default;
 			}
 
 
@@ -334,7 +331,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			this.job.nestedPivotComponents = new NestedNativeArray<Matrix4x4>(scheduler.pivotComponents, this.boneIndex, this.properties.Length);
 			this.job.nestedColliderProperties = this.colProperties;
 			this.job.nestedColliderComponents = new NestedNativeArray<SpringColliderComponents>(scheduler.colComponents, this.colIndex, this.colProperties.Length);
-			this.job.nestedLengthLimitComponents = this.lengthComponents;
+			this.job.nestedLengthLimitTargets = this.lengthLimitTargets;
 
 			// Transformの階層構造をバラす
 			if (this.optimizeTransform)
@@ -350,10 +347,10 @@ namespace Unity.Animations.SpringBones.Jobs {
 			if (!this.initialized)
 				return;
 
-			Debug.LogWarning("Final : " + this.name);
+			Debug.Log("SpringJobManager Final : " + this.name);
 
-			// Clear Transform
-			// NOTE: TransformをnullにしておくことでIJobParallelForTransformの負荷を下げる
+			// NOTE: TransformをnullにしておくことでIJobParallelForTransformのParallel処理が効率化する
+			//       null、または非アクティブなTransformAccessは内部でスキップされる
 			for (int i = 0; i < this.properties.Length; ++i) {
 				int index = this.boneIndex + i;
 				scheduler.boneTransforms[index] = null;
@@ -364,13 +361,13 @@ namespace Unity.Animations.SpringBones.Jobs {
 			}
 			for (int i = 0; i < this.colProperties.Length; ++i)
 				scheduler.colliderTransforms[this.colIndex + i] = null;
-			for (int i = 0; i < this.lengthComponents.Length; ++i)
+			for (int i = 0; i < this.lengthLimitTargets.Length; ++i)
 				scheduler.lengthLimitTransforms[this.lengthIndex + i] = null;
 
 			// Poolへ返却
 			scheduler.properties.Free(this.properties);
 			scheduler.colProperties.Free(this.colProperties);
-			scheduler.lengthComponents.Free(this.lengthComponents);
+			scheduler.lengthLimitTargets.Free(this.lengthLimitTargets);
 
 			this.initialized = false;
 		}
@@ -386,10 +383,6 @@ namespace Unity.Animations.SpringBones.Jobs {
 				this.job.deltaTime = (this.simulationFrameRate > 0) ? (1f / this.simulationFrameRate) : Time.deltaTime;
 			return this.job;
 		}
-
-		//private void Awake() {
-		//	this.CachedJobParam();
-		//}
 
 		void OnEnable() {
 			// TODO: 毎回Initializeが呼ばれるので無駄
