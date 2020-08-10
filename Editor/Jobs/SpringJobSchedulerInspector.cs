@@ -15,6 +15,7 @@ namespace Unity.Animations.SpringBones.Jobs
             public static readonly GUIContent colliderLabel = EditorGUIUtility.TrTextContent("SpringColliderの上限値", "シーン内でアクティブなSpringJobManagerで扱われるSpringColliderの最大値です。十分な値を設定してください。");
             public static readonly GUIContent regiColliderLabel = EditorGUIUtility.TrTextContent("Collider判定の上限値", "シーン内でアクティブなSpringJobManagerで扱われるSpringBoneに登録されているColliderの最大値です。肥大化しがちなので十分な値を設定してください。");
             public static readonly GUIContent regiLengthLabel = EditorGUIUtility.TrTextContent("LenghLimit判定の上限値", "シーン内でアクティブなSpringJobManagerで扱われるSpringBoneに登録されているLengthLimitの最大値です。肥大化しがちなので十分な値を設定してください。");
+            public static readonly GUIContent forceLabel = EditorGUIUtility.TrTextContent("外力の上限値", "シーン内でアクティブなForceProviderの最大値です。");
         }
 
         private SerializedProperty m_propAsync;
@@ -24,7 +25,8 @@ namespace Unity.Animations.SpringBones.Jobs
         private SerializedProperty m_propCollider;
         private SerializedProperty m_propRegiCollider;
         private SerializedProperty m_propRegiLength;
-        
+        private SerializedProperty m_propForce;
+
         public override void OnInspectorGUI()
         {
             serializedObject.Update();
@@ -36,6 +38,7 @@ namespace Unity.Animations.SpringBones.Jobs
             EditorGUILayout.PropertyField(m_propCollider, Styles.colliderLabel);
             EditorGUILayout.PropertyField(m_propRegiCollider, Styles.regiColliderLabel);
             EditorGUILayout.PropertyField(m_propRegiLength, Styles.regiLengthLabel);
+            EditorGUILayout.PropertyField(m_propForce, Styles.forceLabel);
 
             if (m_propThread.intValue < 0)
                 m_propThread.intValue = 0;
@@ -62,6 +65,7 @@ namespace Unity.Animations.SpringBones.Jobs
             m_propCollider = serializedObject.FindProperty("colliderCapacity");
             m_propRegiCollider = serializedObject.FindProperty("registedColliderCapacity");
             m_propRegiLength = serializedObject.FindProperty("registeredLengthLimitCapacity");
+            m_propForce = serializedObject.FindProperty("forceCapacity");
         }
     }
 }
