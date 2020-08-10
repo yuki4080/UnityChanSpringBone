@@ -14,7 +14,9 @@ namespace Unity.Animations.SpringBones
         [SerializeField]
         internal bool enabledJobSystem = false; // NOTE: ちょっとダサいがJob化しましたよフラグ
         [SerializeField]
-        internal Jobs.SpringCollider[] jobColliders = null;
+        internal Jobs.SpringCollider[] jobColliders = new Jobs.SpringCollider[0];
+        [SerializeField]
+        internal Transform[] validChildren = new Transform[0];
         //********************************************************
 
         public enum CollisionStatus
@@ -76,8 +78,19 @@ namespace Unity.Animations.SpringBones
         
         public Vector3 ComputeChildPosition()
         {
-            var children = GetValidChildren(transform);
-            var childCount = children.Count;
+            //*******************************************
+            // Optimized for Job
+            //*******************************************
+            //var children = GetValidChildren(transform);
+            //var childCount = children.Count;
+            var children = this.validChildren;
+            var childCount = children.Length;
+            if (childCount == 0) {
+                children = GetValidChildren(transform).ToArray();
+                childCount = children.Length;
+                this.validChildren = children; // Serialize
+            }
+            //*******************************************
 
             if (childCount == 0)
             {

@@ -224,7 +224,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 				return false;
 			}
 
-			int index = 0;
+			int lengthTargetIndex = 0;
 			List<Transform> allLengthLimitList = new List<Transform>(128);
 			for (var i = 0; i < nSpringBones; ++i) {
 				SpringBone springBone = springBones[i];
@@ -239,11 +239,11 @@ namespace Unity.Animations.SpringBones.Jobs {
 						return false;
 					}
 					for (int m = 0; m < nLengthLimitTargets; ++m) {
-						nestedLengthLimitProps[m] = this.jobLengthProperties[index];
+						nestedLengthLimitProps[m] = this.jobLengthProperties[lengthTargetIndex];
 						var targetTransform = springBone.lengthLimitTargets[m];
 						scheduler.lengthLimitTransforms[this.lengthIndex + m] = targetTransform;
 						allLengthLimitList.Add(targetTransform);
-						++index;
+						++lengthTargetIndex;
 					}
 				}
 
@@ -266,14 +266,20 @@ namespace Unity.Animations.SpringBones.Jobs {
 				prop.lengthLimitProps = nestedLengthLimitProps;
 				this.properties[i] = prop;
 
+				int fullBoneIndex = this.boneIndex + i;
+
 				// Read/Write（initialize param）
-				scheduler.components[this.boneIndex + i] = this.jobComponents[i];
+				// NOTE: ワールド座標依存なので再計算
+				Vector3 tipPosition = springBone.ComputeChildPosition();
+				this.jobComponents[fullBoneIndex].currentTipPosition = tipPosition;
+				this.jobComponents[fullBoneIndex].previousTipPosition = tipPosition;
+				scheduler.components[fullBoneIndex] = this.jobComponents[i];
 
 				// TransformArray
 				var root = springBone.transform;
-				scheduler.boneTransforms[this.boneIndex + i] = root;
-				scheduler.boneParentTransforms[this.boneIndex + i] = root.parent;
-				scheduler.bonePivotTransforms[this.boneIndex + i] = springBone.GetPivotTransform();
+				scheduler.boneTransforms[fullBoneIndex] = root;
+				scheduler.boneParentTransforms[fullBoneIndex] = root.parent;
+				scheduler.bonePivotTransforms[fullBoneIndex] = springBone.GetPivotTransform();
 			}
 
 			// Colliders
