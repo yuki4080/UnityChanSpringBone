@@ -2,7 +2,7 @@
 
 namespace Unity.Animations.SpringBones
 {
-    public class ForceVolume : ForceProvider 
+    public class ForceVolume : ForceProvider
     {
         public float strength = 0.01f;
 
@@ -11,14 +11,25 @@ namespace Unity.Animations.SpringBones
             return strength * transform.forward;
         }
 
-        // private
+        public override Jobs.SpringForceComponent GetActiveForce() {
+            var t = this.transform;
 
+            return new Jobs.SpringForceComponent {
+                type = Jobs.SpringBoneForceType.Directional,
+                position = t.position,
+                rotation = t.rotation,
+                strength = this.strength,
+            };
+        }
+
+#if UNITY_EDITOR
         private void OnDrawGizmos()
         {
-            const float DrawScale = 10f;
+            const float DrawScale = 1f;
             var origin = transform.position;
             var destination = origin + strength * DrawScale * transform.forward;
             GizmoUtil.DrawArrow(origin, destination, Color.gray, 0.1f);
         }
+#endif
     }
 }

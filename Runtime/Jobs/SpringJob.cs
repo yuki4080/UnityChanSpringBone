@@ -1,5 +1,6 @@
 using Unity.Collections;
 using Unity.Jobs;
+using Unity.Mathematics;
 using UnityEngine;
 using FUtility;
 
@@ -57,12 +58,14 @@ namespace Unity.Animations.SpringBones.Jobs {
 	[Burst.BurstCompile]
 	public struct SpringJob : IJobParallelFor {
 		[ReadOnly] public NativeArray<SpringJobElement> jobManagers;
+		[ReadOnly] public NativeArray<SpringForceComponent> forces;
+		public int forceCount;
 
 		/// <summary>
 		/// ジョブ実行
 		/// </summary>
 		void IJobParallelFor.Execute(int index) {
-			this.jobManagers[index].Execute();
+			this.jobManagers[index].Execute(forces, forceCount);
 		}
 	}
 
@@ -94,7 +97,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 		/// <summary>
 		/// ジョブ実行
 		/// </summary>
-		public void Execute() {
+		public void Execute(NativeArray<SpringForceComponent> forces, int forceCount) {
 			if (this.isPaused)
 				return;
 
@@ -119,9 +122,10 @@ namespace Unity.Animations.SpringBones.Jobs {
 				}
 
 				var baseWorldRotation = parentRot * prop.initialLocalRotation;
-				this.UpdateSpring(ref bone, in prop, in baseWorldRotation);
+				var force = this.GetTotalForceOnBone(in bone, in prop, forces, forceCount);
+				this.UpdateSpring(ref bone, in prop, baseWorldRotation, force);
 				this.ResolveCollisionsAndConstraints(ref bone, in prop, i, this.nestedComponents);
-				this.UpdateRotation(ref bone, in prop, in baseWorldRotation);
+				this.UpdateRotation(ref bone, in prop, baseWorldRotation);
 				
 				// NOTE: 子の為に更新する
 				bone.rotation = parentRot * bone.localRotation;
@@ -130,12 +134,12 @@ namespace Unity.Animations.SpringBones.Jobs {
 			}
 		}
 
-		private void UpdateSpring(ref SpringBoneComponents bone, in SpringBoneProperties prop, in Quaternion baseWorldRotation) {
+		private void UpdateSpring(ref SpringBoneComponents bone, in SpringBoneProperties prop, Quaternion baseWorldRotation, Vector3 externalForce) {
 			var orientedInitialPosition = bone.position + baseWorldRotation * prop.boneAxis * prop.springLength;
 
 			// Hooke's law: force to push us to equilibrium
 			var force = prop.stiffnessForce * (orientedInitialPosition - bone.currentTipPosition);
-			force += prop.springForce + this.gravity; // TODO: externalForce
+			force += prop.springForce + externalForce;
 			var sqrDt = this.deltaTime * this.deltaTime;
 			force *= 0.5f * sqrDt;
 
@@ -342,7 +346,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			bone.currentTipPosition = origin + vector;
 		}
 
-		private void UpdateRotation(ref SpringBoneComponents bone, in SpringBoneProperties prop, in Quaternion baseWorldRotation) {
+		private void UpdateRotation(ref SpringBoneComponents bone, in SpringBoneProperties prop, Quaternion baseWorldRotation) {
 			if (float.IsNaN(bone.currentTipPosition.x)
 				| float.IsNaN(bone.currentTipPosition.y)
 				| float.IsNaN(bone.currentTipPosition.z))
@@ -365,6 +369,51 @@ namespace Unity.Animations.SpringBones.Jobs {
 			var outputRotation = prop.initialLocalRotation * aimRotation;
 
 			return outputRotation;
+		}
+
+		private Vector3 GetTotalForceOnBone(in SpringBoneComponents bone, in SpringBoneProperties prop, NativeArray<SpringForceComponent> forces, int forceCount) {
+			var sumOfForces = this.gravity;
+			for (var i = 0; i < forceCount; i++) {
+				var force = forces[i];
+				sumOfForces += ComputeForceOnBone(in force, in bone, prop.windInfluence);
+			}
+
+			return sumOfForces;
+		}
+
+		// ForceVolume
+		private static Vector3 ComputeForceOnBone(in SpringForceComponent force, in SpringBoneComponents bone, float boneWindInfluence) {
+			//Directional
+			if (force.type == SpringBoneForceType.Directional) {
+				return math.mul(new float4x4(force.rotation, force.position), new float4(0f, 0f, force.strength, 0f)).xyz;
+			}
+
+			//Wind
+			//var fullWeight = force.weight * force.strength;
+			var fullWeight = force.strength;
+			//if ((fullWeight <= 0.0001f) | (force.periodInSecond <= 0.001f))
+			if (fullWeight <= 0.0001f)
+				return Vector3.zero;
+
+			const float PI2 = math.PI * 2f;
+
+			//var factor = force.timeInSecond / force.periodInSecond * PI2;
+
+			var localToWorldMatrix = new float4x4(force.rotation, force.position);
+			var worldToLocalMatrix = math.mul(new float4x4(math.inverse(force.rotation), float3.zero), new float4x4(float3x3.identity, -force.position));
+			//var worldToLocalMatrix = Matrix4x4.Inverse(force.localToWorldMatrix);
+
+			// Wind
+			var boneLocalPositionInWindWorld = math.mul(worldToLocalMatrix, new float4(bone.position, 1f));
+			var positionalMultiplier = PI2 / force.peakDistance;
+			var positionalFactor = math.sin(positionalMultiplier * boneLocalPositionInWindWorld.x) + math.cos(positionalMultiplier * boneLocalPositionInWindWorld.z);
+			var offsetMultiplier = math.sin(force.timeFactor + positionalFactor);
+
+			var forward = math.mul(localToWorldMatrix, new float4(0f, 0f, 1f, 0f)).xyz;
+			float3 offset = offsetMultiplier * force.offsetVector;
+			var forceAtPosition = boneWindInfluence * fullWeight * math.normalize(forward + offset);
+
+			return forceAtPosition;
 		}
 	}
 }

@@ -22,8 +22,7 @@ namespace Unity.Animations.SpringBones.Jobs
             float tailRadius
         )
         {
-            var localToWorldMat = transform.localToWorldMatrix;
-            var localTailPosition = localToWorldMat.MultiplyPoint3x4(tailPosition);
+            var localTailPosition = transform.localToWorldMatrix.MultiplyPoint3x4(tailPosition);
             
             // Plane transform is z-up. if hence z >= tailRadius, there is no collision.  
             if (localTailPosition.z >= tailRadius)
@@ -112,8 +111,8 @@ namespace Unity.Animations.SpringBones.Jobs
                 }
             }
 
-            tailPosition = localToWorldMat.MultiplyPoint3x4(localTailPosition);
-            hitNormal = Vector3.Normalize(localToWorldMat.MultiplyPoint3x4(Vector3.forward)); 
+            tailPosition = transform.localToWorldMatrix.MultiplyPoint3x4(localTailPosition);
+            hitNormal = Vector3.Normalize(transform.localToWorldMatrix.MultiplyPoint3x4(Vector3.forward)); 
 
             return true;
         }

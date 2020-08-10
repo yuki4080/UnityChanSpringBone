@@ -80,7 +80,25 @@ namespace Unity.Animations.SpringBones
             offsetVector = amplitude * offsetVector;
         }
 
-        private void OnDrawGizmos()
+        public override Jobs.SpringForceComponent GetActiveForce() {
+            return new Jobs.SpringForceComponent {
+                type = Jobs.SpringBoneForceType.Wind,
+                //localToWorldMatrix = Matrix4x4.TRS(t.position, t.rotation, t.localScale),
+                position = this.transform.position,
+                rotation = this.transform.rotation,
+                strength = this.period > 0.001f ? this.weight * this.strength : 0f,
+                //weight = this.period > 0.001f ? this.weight : 0f,
+                amplitude = this.amplitude,
+                //periodInSecond = this.period,
+                //spinPeriodInSecond = this.spinPeriod,
+                timeFactor = this.timeFactor,
+                peakDistance = this.peakDistance,
+                offsetVector = this.OffsetVector,
+            };
+        }
+
+#if UNITY_EDITOR
+            private void OnDrawGizmos()
         {
             var origin = transform.position;
             var strengthMultiplier = Mathf.Clamp(strength, 0.1f, 1f);
@@ -97,5 +115,6 @@ namespace Unity.Animations.SpringBones
                 GizmoUtil.DrawArrow(origin + offset, destination + offset, Color.gray, 0.1f);
             }
         }
+#endif
     }
 }

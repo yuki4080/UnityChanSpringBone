@@ -3,6 +3,7 @@ using Unity.Jobs;
 using UnityEngine;
 using UnityEngine.Jobs;
 using FUtility;
+using System.Collections.Generic;
 
 namespace Unity.Animations.SpringBones.Jobs {
 	/// <summary>
@@ -26,17 +27,20 @@ namespace Unity.Animations.SpringBones.Jobs {
 		[SerializeField]
 		private int registerCapacity = 32;    // 登録最大数
 		[SerializeField]
-		private int boneCapacity = 1024;       // ボーン最大数
+		private int boneCapacity = 1024;      // ボーン最大数
 		[SerializeField]
 		private int colliderCapacity = 256;   // コライダー最大数
 		[SerializeField]
-		private int registedColliderCapacity = 2048;    // コリジョンインデックス最大数
+		private int registedColliderCapacity = 2048;     // コリジョンインデックス最大数
 		[SerializeField]
 		private int registeredLengthLimitCapacity = 256; // 長さ制限最大数
+		[SerializeField]
+		private int forceCapacity = 16;      // 外力最大数
 
 		private static SpringJobScheduler instance = null;
 
 		// ジョブ渡しバッファ
+		internal NativeArray<SpringForceComponent> forces;
 		internal NativeContainerPool<SpringBoneProperties> properties;
 		internal NativeArray<SpringBoneComponents> components;
 		internal NativeArray<Matrix4x4> parentComponents;
@@ -65,6 +69,8 @@ namespace Unity.Animations.SpringBones.Jobs {
 		private JobHandle handle;
 		private bool scheduled = false;
 
+		private List<ForceProvider> forceProviderList = null; // 外力は付け外しが頻繁に起きないはずなのでTaskSystem（LinkedList）は過剰
+
 
 		/// <summary>
 		/// 同期／非同期のスイッチ
@@ -84,7 +90,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 		/// 初期化
 		/// </summary>
 		private void Initialize() {
-			if (instance != null) {
+			if (instance != null && instance != this) {
 				// 重複不可
 				Debug.LogWarning("Do not use multiple SpringJobScheduler.");
 				Object.DestroyImmediate(this.gameObject);
@@ -111,7 +117,10 @@ namespace Unity.Animations.SpringBones.Jobs {
 			this.registedColliderCapacity = Mathf.Max(1, this.registedColliderCapacity);
 			this.registeredLengthLimitCapacity = Mathf.Max(1, this.registeredLengthLimitCapacity);
 
+			this.forceProviderList = new List<ForceProvider>(this.forceCapacity);
+
 			// NativeContainer作成
+			this.forces = new NativeArray<SpringForceComponent>(this.forceCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 			this.properties = new NativeContainerPool<SpringBoneProperties>(this.boneCapacity, this.registerCapacity);
 			this.components = new NativeArray<SpringBoneComponents>(this.boneCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 			this.parentComponents = new NativeArray<Matrix4x4>(this.boneCapacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
@@ -142,6 +151,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			this.preHandle = new NativeArray<JobHandle>((int)TRANSFORM_JOB.MAX, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 
 			this.springJob.jobManagers = this.managers;
+			this.springJob.forces = this.forces;
 
 			// 稼働しているWorkerThread数より多いの禁止（挙動としての意味はないが一応警告）
 			if (this.maxWorkerThreadCount > System.Environment.ProcessorCount) {
@@ -171,6 +181,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			this.colliderTransforms.Dispose();
 			this.lengthLimitTransforms.Dispose();
 
+			this.forces.Dispose();
 			this.properties.Dispose();
 			this.components.Dispose();
 			this.parentComponents.Dispose();
@@ -202,6 +213,8 @@ namespace Unity.Animations.SpringBones.Jobs {
 			this.managerTasks.Order(CollectSpringJobElements);
 #endif
 
+			this.UpdateForceProvider();
+
 			if (this.asynchronize) {
 				// Spring結果反映
 				var applyHandle = this.applyJob.Schedule(this.boneTransforms);
@@ -232,6 +245,17 @@ namespace Unity.Animations.SpringBones.Jobs {
 		}
 
 		/// <summary>
+		/// 外力更新
+		/// </summary>
+		private void UpdateForceProvider() {
+			int forceCount = this.forceProviderList.Count;
+			if (forceCount < 1)
+				return;
+			for (int i = 0; i < forceCount; ++i)
+				this.forces[i] = this.forceProviderList[i].GetActiveForce();
+		}
+
+		/// <summary>
 		/// 接続
 		/// </summary>
 		public static bool Entry(SpringJobManager register) {
@@ -244,7 +268,6 @@ namespace Unity.Animations.SpringBones.Jobs {
 
 					Debug.Log("Create SpringJobScheduler using default parameter");
 				}
-				scheduler.Initialize();
 			}
 
 			if (instance.managerTasks.count > instance.registerCapacity) {
@@ -280,17 +303,45 @@ namespace Unity.Animations.SpringBones.Jobs {
 			return instance.managerTasks.Detach(DetachFineshedJob); ;
 		}
 
+		/// <summary>
+		/// 外力の追加
+		/// </summary>
+		/// <param name="force">外力設定</param>
+		public static void AddForceProvider(ForceProvider force) {
+			if (instance == null)
+				return;
+			instance.forceProviderList.Add(force);
+		}
+		/// <summary>
+		/// 外力の削除
+		/// </summary>
+		/// <param name="force">外力設定</param>
+		public static void RemoveForceProvider(ForceProvider force) {
+			if (instance == null)
+				return;
+			instance.forceProviderList.Remove(force);
+		}
+
+		/// <summary>
+		/// 外力の削除
+		/// </summary>
+		public static void ClearForceProvider() {
+			instance.forceProviderList.Clear();
+		}
+
 		#region MANAGER TASK
-		public static bool CollectSpringJobElements(SpringJobManager manager, int no) {
-			instance.springJob.jobManagers[no] = manager.GetElement();
+		private static bool CollectSpringJobElements(SpringJobManager manager, int no) {
+			var element = manager.GetElement();
+			instance.springJob.forceCount = instance.forceProviderList.Count;
+			instance.springJob.jobManagers[no] = element;
 			return true;
 		}
-		public static int DetachFineshedJob(SpringJobManager manager) {
+		private static int DetachFineshedJob(SpringJobManager manager) {
 			if (manager.initialized)
 				return 0;
 			return -1; // Detachかつ中断
 		}
-		public static int AllFinishJob(SpringJobManager manager) {
+		private static int AllFinishJob(SpringJobManager manager) {
 			manager.Final(instance);
 			return 1; // Detachかつ継続
 		}
