@@ -9,7 +9,7 @@ namespace Unity.Animations.SpringBones.Jobs
         private static class Styles
         {
             public static readonly GUIContent asyncLabel = EditorGUIUtility.TrTextContent("非同期処理を有効", "LateUpdate以降のバックグラウンドで計算を行います。ボーンへの反映が1F遅れることに注意してください");
-            public static readonly GUIContent threadLabel = EditorGUIUtility.TrTextContent("最大スレッド分散数", "最大でいくつのワーカースレッドで分散処理を行うのか設定します。0で無制限になります。");
+            public static readonly GUIContent threadLabel = EditorGUIUtility.TrTextContent("演算Jobの最大使用スレッド数", "最大でいくつのワーカースレッドで演算部分の分散処理を行うのか設定します。0で無制限になります。");
             public static readonly GUIContent registerLabel = EditorGUIUtility.TrTextContent("SpringJobManagerの上限値", "シーン内でアクティブなSpringJobManagerの最大値です。十分な値を設定してください。");
             public static readonly GUIContent boneLabel = EditorGUIUtility.TrTextContent("SpringBoneの上限値", "シーン内でアクティブなSpringJobManagerで扱われるSpringBoneの最大値です。十分な値を設定してください。");
             public static readonly GUIContent colliderLabel = EditorGUIUtility.TrTextContent("SpringColliderの上限値", "シーン内でアクティブなSpringJobManagerで扱われるSpringColliderの最大値です。十分な値を設定してください。");

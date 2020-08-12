@@ -271,8 +271,8 @@ namespace Unity.Animations.SpringBones.Jobs {
 				// Read/Write（initialize param）
 				// NOTE: ワールド座標依存なので再計算
 				Vector3 tipPosition = springBone.ComputeChildPosition();
-				this.jobComponents[fullBoneIndex].currentTipPosition = tipPosition;
-				this.jobComponents[fullBoneIndex].previousTipPosition = tipPosition;
+				this.jobComponents[i].currentTipPosition = tipPosition;
+				this.jobComponents[i].previousTipPosition = tipPosition;
 				scheduler.components[fullBoneIndex] = this.jobComponents[i];
 
 				// TransformArray

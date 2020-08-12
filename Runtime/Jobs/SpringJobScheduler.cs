@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.Jobs;
 using FUtility;
 using System.Collections.Generic;
+//using Unity.Jobs.LowLevel.Unsafe;
 
 namespace Unity.Animations.SpringBones.Jobs {
 	/// <summary>
@@ -68,6 +69,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 		private SpringJob springJob;
 		private JobHandle handle;
 		private bool scheduled = false;
+		private bool asyncCache = false;
 
 		private List<ForceProvider> forceProviderList = null; // 外力は付け外しが頻繁に起きないはずなのでTaskSystem（LinkedList）は過剰
 
@@ -75,7 +77,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 		/// <summary>
 		/// 同期／非同期のスイッチ
 		/// </summary>
-		public bool enabledAsync { get { return this.asynchronize; } set { this.asynchronize = value; } }
+		public bool enabledAsync { get => this.asynchronize; set => this.asynchronize = value; }
 
 
 		/// <summary>
@@ -131,7 +133,7 @@ namespace Unity.Animations.SpringBones.Jobs {
 			this.lengthProperties = new NativeContainerPool<LengthLimitProperties>(this.registeredLengthLimitCapacity, this.boneCapacity);
 			this.lengthLimitTargets = new NativeContainerPool<Vector3>(this.registeredLengthLimitCapacity, this.registerCapacity);
 
-			this.boneTransforms = new TransformAccessArray(new Transform[this.boneCapacity], 1);
+			this.boneTransforms = new TransformAccessArray(new Transform[this.boneCapacity]);
 			this.boneParentTransforms = new TransformAccessArray(new Transform[this.boneCapacity]);
 			this.bonePivotTransforms = new TransformAccessArray(new Transform[this.boneCapacity]);
 			this.colliderTransforms = new TransformAccessArray(new Transform[this.colliderCapacity]);
@@ -152,6 +154,8 @@ namespace Unity.Animations.SpringBones.Jobs {
 
 			this.springJob.jobManagers = this.managers;
 			this.springJob.forces = this.forces;
+			this.scheduled = false;
+			this.asyncCache = this.asynchronize;
 
 			// 稼働しているWorkerThread数より多いの禁止（挙動としての意味はないが一応警告）
 			if (this.maxWorkerThreadCount > System.Environment.ProcessorCount) {
@@ -199,8 +203,10 @@ namespace Unity.Animations.SpringBones.Jobs {
 			if (!this.scheduled)
 				return;
 
-			if (this.asynchronize)
+			// 非同期から同期への切り替え対応
+			if (this.asynchronize || this.asyncCache)
 				this.handle.Complete();
+			this.asyncCache = this.asynchronize;
 
 			int managerCount = this.managerTasks.count;
 			if (managerCount == 0) {
